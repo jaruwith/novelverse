@@ -1,0 +1,1 @@
+import Link from "next/link"; export default function NotFound(){return <div className="statePage"><div className="stateIcon">404</div><h1>ไม่พบหน้าที่ต้องการ</h1><p>ลิงก์อาจเปลี่ยนไป หรือเนื้อหาไม่อยู่ในระบบจำลองนี้</p><Link className="primaryButton" href="/">กลับหน้าแรก</Link></div>}

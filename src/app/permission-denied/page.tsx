@@ -1,0 +1,1 @@
+import Link from "next/link"; export default function Page(){return <div className="statePage"><div className="stateIcon">⊘</div><h1>ไม่มีสิทธิ์เข้าถึง</h1><p>บทบาทปัจจุบันไม่สามารถเปิดหน้านี้ได้ ใช้ตัวสลับบทบาทเพื่อทดสอบสถานะอื่น</p><Link className="primaryButton" href="/">กลับหน้าแรก</Link></div>}

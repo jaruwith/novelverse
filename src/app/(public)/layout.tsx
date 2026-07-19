@@ -1,0 +1,2 @@
+import { GlobalHeader } from "@/components/GlobalHeader";
+export default function PublicLayout({children}:{children:React.ReactNode}){return <><GlobalHeader/><main>{children}</main><footer><strong>NovelVerse</strong><span>Wireframe prototype · J007lnwza · j007lnwza.com/novelverse</span><nav><a href="/_states">ตัวอย่างสถานะระบบ</a><a href="/categories">สำรวจหมวดหมู่</a><a href="/login">เข้าสู่ระบบ</a></nav></footer></>}
