@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NovelVerse — Visual Screen Overview</title>
+  <style>
+    :root{--bg:#f7f8f5;--card:#fff;--ink:#24312a;--muted:#68756e;--line:#dfe5df;--green:#42664d;--green-soft:#dce9dd;--blue:#e5eff4;--shadow:0 14px 40px rgba(39,57,47,.10)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans Thai","Leelawadee UI",Tahoma,Arial,sans-serif;line-height:1.55}
+    button,input{font:inherit}.wrap{max-width:1480px;margin:auto;padding:34px 24px 80px}.hero{background:linear-gradient(135deg,#e8f1e7,#f7ecdd);border:1px solid var(--line);border-radius:24px;padding:38px;box-shadow:var(--shadow)}
+    .eyebrow{font-size:.75rem;text-transform:uppercase;letter-spacing:.13em;color:var(--green);font-weight:800}.hero h1{font-size:clamp(2.2rem,5vw,4.2rem);line-height:1;margin:10px 0 16px}.hero p{max-width:780px;color:var(--muted)}
+    .stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px}.stat{background:#ffffffb8;border:1px solid #fff;border-radius:13px;padding:12px 16px}.stat strong{display:block;font-size:1.15rem}.stat span{font-size:.75rem;color:var(--muted)}
+    .toolbar{position:sticky;top:0;z-index:20;background:rgba(247,248,245,.95);backdrop-filter:blur(12px);padding:18px 0 14px}.filters{display:flex;gap:8px;overflow:auto;padding-bottom:8px}.filter{white-space:nowrap;border:1px solid var(--line);border-radius:999px;background:#fff;padding:9px 14px;cursor:pointer}.filter.active{background:var(--green);border-color:var(--green);color:#fff}.search{width:100%;border:1px solid var(--line);border-radius:13px;padding:12px 15px;background:#fff;margin-top:8px}
+    .result-count{color:var(--muted);font-size:.84rem;margin:4px 0 14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.screen{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 5px 18px rgba(39,57,47,.05)}
+    .screen-head{padding:20px 20px 14px}.screen h2{margin:4px 0 3px;font-size:1.3rem}.route{font-family:Consolas,monospace;color:var(--green);font-size:.82rem;word-break:break-all}.purpose{color:var(--muted);margin:10px 0 0}.badges{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.badge{background:var(--green-soft);border-radius:999px;padding:5px 9px;font-size:.72rem;font-weight:750}.badge.role{background:var(--blue)}.badge.status{background:#f1ede3}
+    .shots{display:grid;grid-template-columns:1.55fr .65fr;gap:10px;padding:0 20px}.shots:has(.shot:only-child){grid-template-columns:1fr}.shot{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#eef1ed;cursor:zoom-in;position:relative}.shot img{display:block;width:100%;height:310px;object-fit:cover;object-position:top}.shot.mobile img{height:310px}.shot span{position:absolute;left:8px;bottom:8px;background:#24312adb;color:#fff;padding:4px 8px;border-radius:7px;font-size:.7rem}
+    .details{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:18px 20px 22px}.details h3{font-size:.8rem;margin:0 0 6px;color:var(--green)}.details ul{margin:0;padding-left:18px;font-size:.86rem}.empty{display:none;text-align:center;padding:60px;border:1px dashed var(--line);border-radius:18px;color:var(--muted)}
+    .modal{position:fixed;inset:0;z-index:100;background:rgba(20,29,24,.88);display:none;align-items:center;justify-content:center;padding:22px}.modal.open{display:flex}.modal img{max-width:96vw;max-height:92vh;object-fit:contain;background:#fff;border-radius:10px}.modal button{position:fixed;right:22px;top:18px;border:0;background:#fff;color:var(--ink);border-radius:999px;width:44px;height:44px;font-size:1.3rem;cursor:pointer}.modal-caption{position:fixed;left:22px;bottom:18px;background:#fff;color:var(--ink);border-radius:9px;padding:8px 12px}
+    footer{color:var(--muted);text-align:center;margin-top:48px;font-size:.84rem}@media(max-width:900px){.grid{grid-template-columns:1fr}.hero{padding:26px}.shots{grid-template-columns:1.4fr .6fr}}@media(max-width:560px){.wrap{padding:18px 12px 60px}.shots{grid-template-columns:1fr}.shot img,.shot.mobile img{height:270px}.details{grid-template-columns:1fr}.hero h1{font-size:2.5rem}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="hero">
+      <span class="eyebrow">Visual Documentation</span>
+      <h1>NovelVerse</h1>
+      <p><strong>Current stage: Interactive Wireframe</strong></p>
+      <p>ภาพรวมนี้ช่วยให้ผู้เริ่มต้นเห็นหน้าจอและเส้นทางปัจจุบันของโครงการ เป็นเอกสารประกอบ wireframe ไม่ใช่ Production UI และไม่ได้ยืนยันว่าปุ่มหรือข้อมูลจำลองเชื่อมต่อระบบจริงแล้ว</p>
+      <div class="stats">
+        <div class="stat"><strong>19 กรกฎาคม 2569</strong><span>วันที่สร้างเอกสาร</span></div>
+        <div class="stat"><strong id="pageTotal">35</strong><span>หน้าที่และสถานะที่นำเสนอ</span></div>
+        <div class="stat"><strong id="shotTotal">68</strong><span>ภาพหน้าจอ</span></div>
+        <div class="stat"><strong>1440×1000 / 390×844</strong><span>Desktop / Mobile viewport</span></div>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="ตัวกรองหน้าจอ">
+      <div class="filters" id="filters"></div>
+      <input class="search" id="search" type="search" placeholder="ค้นหาจากชื่อหน้า หรือ route เช่น dashboard, /story" aria-label="ค้นหาหน้าจอ">
+    </section>
+    <p class="result-count" id="resultCount"></p>
+    <section class="grid" id="screenGrid"></section>
+    <div class="empty" id="empty">ไม่พบหน้าที่ตรงกับคำค้นหาและหมวดหมู่ที่เลือก</div>
+    <footer>NovelVerse Visual Screen Overview · ภาพจาก mock data และ role switcher ของ wireframe ปัจจุบัน</footer>
+  </main>
+
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-label="ภาพหน้าจอขนาดใหญ่">
+    <button id="closeModal" aria-label="ปิดภาพ">×</button>
+    <img id="modalImage" alt="">
+    <div class="modal-caption" id="modalCaption"></div>
+  </div>
+
+  <script>
+    const screens = [
+      {key:'home',name:'หน้าแรก',route:'/',category:'public',role:'Guest',purpose:'ค้นพบเรื่องใหม่ อ่านต่อ ดูอันดับ หมวดหมู่ และครีเอเตอร์',actions:['เริ่มสำรวจเรื่องราว','สร้างผลงาน','เลือกการ์ดเรื่อง'],dest:['/categories','/dashboard/stories/new','/story/[slug]']},
+      {key:'categories',name:'หมวดหมู่ทั้งหมด',route:'/categories',category:'public',role:'Guest',purpose:'ดูหมวดหลักและจำนวนเรื่องในแต่ละหมวด',actions:['เปิดหมวด'],dest:['/category/[slug]']},
+      {key:'category-fantasy',name:'รายละเอียดหมวดแฟนตาซี',route:'/category/แฟนตาซี',category:'public',role:'Guest',purpose:'ดูเรื่องในหมวด พร้อมตัวกรองและการเรียงลำดับแบบ wireframe',actions:['เลือกแท็บหมวด','เลือกตัวกรอง','เปิดเรื่อง'],dest:['/story/[slug]','/categories']},
+      {key:'search',name:'ผลการค้นหา',route:'/search?q=เวทมนตร์',category:'public',role:'Guest',purpose:'ดูผลการค้นหาแบบกลุ่มเรื่อง ครีเอเตอร์ และแท็ก',actions:['กรองผล','เปิดเรื่อง','เปิดครีเอเตอร์','เลือกแท็ก'],dest:['/story/[slug]','/creator/[username]','/search?q=[tag]']},
+      {key:'story-detail',name:'รายละเอียดเรื่อง',route:'/story/library-after-rain',category:'public',role:'Guest',purpose:'ดูข้อมูลเรื่อง ยอดรวม รายการตอน และเรื่องที่เกี่ยวข้อง',actions:['ติดตามเรื่อง','เริ่มอ่าน','อ่านต่อ','รายงาน'],dest:['/story/[slug]/chapter/1','/creator/[username]','/login']},
+      {key:'creator-profile',name:'โปรไฟล์ครีเอเตอร์',route:'/creator/praewa-writes',category:'creator',role:'Guest',purpose:'ดูโปรไฟล์สาธารณะ สถิติ และผลงานที่เผยแพร่',actions:['เปิดผลงาน','ดูครีเอเตอร์อื่น'],dest:['/story/[slug]','/creator/[username]']},
+      {key:'login',name:'เข้าสู่ระบบ',route:'/login',category:'public',role:'Guest',purpose:'อธิบาย social login จำลองและสิทธิประโยชน์ของสมาชิก',actions:['ดำเนินการต่อด้วย Google','ดำเนินการต่อด้วย Facebook'],dest:['ยังไม่มีการเชื่อมต่อจริง']},
+      {key:'following',name:'กำลังติดตาม',route:'/following',category:'public',role:'Member',purpose:'รวมเรื่องที่ติดตาม ตอนล่าสุด และตำแหน่งที่อ่าน',actions:['เลือกสถานะ','เปิดเรื่อง','สำรวจเรื่องน่าอ่าน'],dest:['/story/[slug]','/categories']},
+      {key:'history',name:'ประวัติการอ่าน',route:'/history',category:'public',role:'Member',purpose:'กลับไปอ่านตอนล่าสุดและจัดการประวัติการอ่าน',actions:['อ่านต่อ','ล้างประวัติ'],dest:['/story/[slug]/chapter/[chapterNumber]','/comic/[slug]/chapter/[chapterNumber]']},
+      {key:'novel-reader',name:'หน้าอ่านนิยาย — Ad-free',route:'/story/library-after-rain/chapter/1?adFree=true',category:'reader',role:'Member',purpose:'Ad-free Member เข้าถึงเนื้อหาทันทีโดยไม่เห็น standard advertisements, Premium Popup หรือ upsell',actions:['อ่านตอน','ตอนก่อนหน้า','รายการตอน','ตอนถัดไป'],dest:['/story/library-after-rain','/story/[slug]/chapter/[chapterNumber]']},
+      {key:'novel-reader-ads-10',name:'หน้าอ่านนิยาย — โฆษณามาตรฐาน 10 รายการ',route:'/story/library-after-rain/chapter/1?adCount=10&premium=false',category:'reader',role:'Member',purpose:'แสดง standard advertisements ที่ active ครบทั้งหมดตาม sortOrder ผู้ใช้ต้องเลื่อนผ่าน stack ก่อนถึงเนื้อหานิยาย ไม่มีเพดานสามรายการและไม่หมุนโฆษณา',actions:['สมัครแบบไม่มีโฆษณา','เปิดลิงก์ผู้สนับสนุน','เลื่อนลงเพื่ออ่าน'],dest:['/dashboard/settings','เว็บไซต์ผู้สนับสนุนในแท็บใหม่']},
+      {key:'comic-reader',name:'หน้าอ่านการ์ตูน — Ad-free',route:'/comic/last-tram-home/chapter/1?adFree=true',category:'reader',role:'Member',purpose:'Ad-free Member เข้าถึงภาพการ์ตูนทันทีโดยไม่เห็น standard advertisements, Premium Popup หรือ upsell',actions:['อ่านการ์ตูน','ตอนก่อนหน้า','ตอนถัดไป'],dest:['/story/last-tram-home','/comic/[slug]/chapter/[chapterNumber]']},
+      {key:'comic-reader-ads-10',name:'หน้าอ่านการ์ตูน — โฆษณามาตรฐาน 10 รายการ',route:'/comic/last-tram-home/chapter/1?adCount=10&premium=false',category:'reader',role:'Member',purpose:'แสดง standard advertisements ที่ active ครบ 10 รายการก่อนภาพการ์ตูน ผู้ใช้ต้องเลื่อนผ่านทั้ง stack ตามลำดับที่กำหนด',actions:['สมัครแบบไม่มีโฆษณา','เปิดลิงก์ผู้สนับสนุน','เลื่อนลงเพื่ออ่าน'],dest:['/dashboard/settings','เว็บไซต์ผู้สนับสนุนในแท็บใหม่']},
+      {key:'premium-popup-stack',name:'Premium Popup ก่อน Advertisement Stack',route:'/story/library-after-rain/chapter/1?adCount=10&premium=true',category:'reader',role:'Member',purpose:'Premium Popup เป็น paid placement แยกจาก standard stack แสดงได้สูงสุดหนึ่งรายการและปิดได้หลัง countdown 5 วินาที',actions:['รอ 5 วินาทีแล้วปิด','เปิดลิงก์ Premium Sponsor'],dest:['standard advertisement stack 10 รายการ','เว็บไซต์ผู้สนับสนุนในแท็บใหม่'],captures:['desktop']},
+      {key:'novel-reader-ad-free',name:'Ad-free Member — อ่านทันที',route:'/story/library-after-rain/chapter/1?adFree=true',category:'reader',role:'Member',purpose:'สถานะยืนยันว่า Ad-free Member ไม่เห็นทั้ง standard advertisements และ Premium Popup และไม่เห็น ad-free upsell',actions:['อ่านเนื้อหาทันที','ใช้ Wireframe Ad Demo'],dest:['/story/[slug]/chapter/[chapterNumber]'],captures:['desktop']},
+      {key:'member-dashboard',name:'ภาพรวม Dashboard สมาชิก',route:'/dashboard',category:'member',role:'Member',purpose:'สรุปผลงาน ยอดอ่าน ความคิดเห็น และอัปเดตล่าสุด',actions:['สร้างนิยาย','สร้างการ์ตูน'],dest:['/dashboard/stories/new?type=NOVEL','/dashboard/stories/new?type=COMIC']},
+      {key:'member-profile-edit',name:'แก้ไขโปรไฟล์',route:'/dashboard/profile',category:'member',role:'Member',purpose:'แก้ข้อมูลโปรไฟล์และดูตัวอย่างหน้าสาธารณะ',actions:['เลือกรูป','บันทึกการเปลี่ยนแปลง','ดูตัวอย่างสาธารณะ'],dest:['/creator/praewa-writes']},
+      {key:'member-stories',name:'ผลงานของฉัน',route:'/dashboard/stories',category:'member',role:'Member',purpose:'ดู กรอง และจัดการผลงานของสมาชิก',actions:['สร้างผลงาน','แก้ไข','จัดการตอน','ดูหน้าสาธารณะ'],dest:['/dashboard/stories/new','/dashboard/stories/[id]/edit','/dashboard/stories/[id]/chapters','/story/[slug]']},
+      {key:'member-story-create',name:'สร้างผลงานใหม่',route:'/dashboard/stories/new',category:'member',role:'Member',purpose:'กรอกข้อมูล Novel หรือ Comic และเลือกบันทึกร่างหรือเผยแพร่',actions:['เลือกประเภท','บันทึกฉบับร่าง','เผยแพร่เรื่อง'],dest:['ยังไม่มีปลายทางหลังบันทึกใน wireframe']},
+      {key:'member-story-edit',name:'แก้ไขผลงาน',route:'/dashboard/stories/nv-01/edit',category:'member',role:'Member',purpose:'แก้ metadata และสถานะของผลงานตัวอย่าง',actions:['บันทึกฉบับร่าง','บันทึกและเผยแพร่'],dest:['ยังไม่มีปลายทางหลังบันทึกใน wireframe']},
+      {key:'member-chapters',name:'จัดการตอน',route:'/dashboard/stories/nv-01/chapters',category:'member',role:'Member',purpose:'ดูสถานะและสถิติของตอน พร้อมสร้างหรือจัดการตอน',actions:['สร้างตอน','แก้ไข','ดูตัวอย่าง','เก็บ'],dest:['/dashboard/stories/nv-01/chapters/new','/story/library-after-rain/chapter/[chapterNumber]']},
+      {key:'member-chapter-create',name:'สร้างตอนใหม่',route:'/dashboard/stories/nv-01/chapters/new',category:'member',role:'Member',purpose:'เขียนตอนนิยายหรือเพิ่มหน้าการ์ตูนใน wireframe editor',actions:['เลือก Novel/Comic','บันทึก Draft','Preview','Publish'],dest:['ยังไม่มีปลายทางหลังบันทึกใน wireframe']},
+      {key:'member-comments',name:'ความคิดเห็นในผลงาน',route:'/dashboard/comments',category:'member',role:'Member',purpose:'ค้นหา กรอง และซ่อนความคิดเห็นบนผลงานของตน',actions:['กรองเรื่อง/ตอน','ค้นหา','ซ่อนความคิดเห็น'],dest:['ยืนยัน action ใน dialog']},
+      {key:'member-analytics',name:'สถิติผลงาน',route:'/dashboard/analytics',category:'member',role:'Member',purpose:'ดูยอดอ่าน ถูกใจ ผู้ติดตาม แนวโน้ม และผลงานยอดนิยม',actions:['เลือกช่วงเวลา'],dest:['ไม่มี navigation หลัก']},
+      {key:'member-settings',name:'การตั้งค่าสมาชิก',route:'/dashboard/settings',category:'member',role:'Member',purpose:'ตั้งค่าบัญชี ค่าเผยแพร่ การเชื่อมต่อ และคำขอลบบัญชี',actions:['บันทึกการตั้งค่า','จัดการการเชื่อมต่อ','ขอลบบัญชี'],dest:['ยืนยัน action ใน dialog']},
+      {key:'admin-dashboard',name:'ภาพรวม Admin',route:'/admin',category:'admin',role:'Admin',purpose:'ดูยอดรวม กิจกรรมล่าสุด และคิว moderation',actions:['เปิดคิวรายงาน'],dest:['/admin/reports']},
+      {key:'admin-users',name:'จัดการผู้ใช้',route:'/admin/users',category:'admin',role:'Admin',purpose:'ค้นหา ดูสถานะ/บทบาท และระงับหรือกู้คืนผู้ใช้',actions:['ค้นหา','เปิดโปรไฟล์','ระงับ/กู้คืน'],dest:['/creator/[username]','ยืนยัน action ใน dialog']},
+      {key:'admin-stories',name:'ตรวจสอบเรื่อง',route:'/admin/stories',category:'admin',role:'Admin',purpose:'ค้นหา กรอง และจัดการ visibility ของเรื่อง',actions:['เปิดเรื่อง','ซ่อน/กู้คืน','ดูรายงาน'],dest:['/story/[slug]','/admin/reports']},
+      {key:'admin-comments',name:'ตรวจสอบความคิดเห็น',route:'/admin/comments',category:'admin',role:'Admin',purpose:'ค้นหาและซ่อนหรือกู้คืนความคิดเห็น',actions:['ค้นหา','ซ่อน/กู้คืน'],dest:['ยืนยัน action ใน dialog']},
+      {key:'admin-reports',name:'จัดการรายงาน',route:'/admin/reports',category:'admin',role:'Admin',purpose:'ทบทวน ซ่อนเป้าหมาย Resolve หรือ Reject รายงาน',actions:['ดูรายละเอียด','ซ่อนเป้าหมาย','Resolve','Reject'],dest:['ยืนยัน action ใน dialog']},
+      {key:'admin-categories',name:'จัดการหมวดหมู่',route:'/admin/categories',category:'admin',role:'Admin',purpose:'ดู เพิ่ม แก้ไข และเก็บหมวดหมู่หลัก',actions:['เพิ่มหมวดหมู่','แก้ไข','เก็บถาวร','บันทึก'],dest:['ยืนยัน action ใน dialog']},
+      {key:'admin-tags',name:'จัดการแท็ก',route:'/admin/tags',category:'admin',role:'Admin',purpose:'ดู เพิ่ม แก้ไข และเก็บแท็กที่ใช้ซ้ำ',actions:['เพิ่มแท็ก','แก้ไข','เก็บถาวร','บันทึก'],dest:['ยืนยัน action ใน dialog']},
+      {key:'ux-states',name:'ตัวอย่าง UX States',route:'/_states',category:'states',role:'Guest',purpose:'รวม Loading, Empty, Error, Archived, Hidden และ Permission denied',actions:['ลองอีกครั้ง','ล้างตัวกรอง'],dest:['ไม่มี navigation หลัก']},
+      {key:'not-found',name:'ไม่พบหน้า',route:'not-found',category:'states',role:'Guest',purpose:'แจ้งว่าลิงก์หรือเนื้อหาไม่พบและช่วยกลับหน้าแรก',actions:['กลับหน้าแรก'],dest:['/']},
+      {key:'permission-denied',name:'ไม่มีสิทธิ์เข้าถึง',route:'/permission-denied',category:'states',role:'Guest',purpose:'อธิบายว่าบทบาทปัจจุบันเปิดหน้าไม่ได้',actions:['กลับหน้าแรก'],dest:['/']}
+    ];
+
+    const categories = [
+      ['all','ทั้งหมด'],['public','หน้าสาธารณะ'],['reader','หน้าอ่าน'],['creator','โปรไฟล์ครีเอเตอร์'],['member','Dashboard สมาชิก'],['admin','Admin'],['states','UX States']
+    ];
+    let activeCategory = 'all';
+    const filters = document.getElementById('filters');
+    const grid = document.getElementById('screenGrid');
+    const search = document.getElementById('search');
+    const resultCount = document.getElementById('resultCount');
+    const empty = document.getElementById('empty');
+    const modal = document.getElementById('modal');
+    const modalImage = document.getElementById('modalImage');
+    const modalCaption = document.getElementById('modalCaption');
+
+    const escapeHtml = (value) => value.replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+    const list = (items) => `<ul>${items.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul>`;
+    function card(screen){
+      const captures = screen.captures || ['desktop','mobile'];
+      const shots = captures.map(viewport => { const image=`screenshots/${screen.key}-${viewport}.png`; const label=viewport==='desktop'?'Desktop':'Mobile'; return `<button class="shot ${viewport==='mobile'?'mobile':''}" data-image="${image}" data-caption="${escapeHtml(screen.name)} — ${label}"><img src="${image}" alt="${escapeHtml(screen.name)} มุมมอง ${label}" loading="lazy"><span>${label} · คลิกเพื่อขยาย</span></button>`; }).join('');
+      return `<article class="screen">
+        <div class="screen-head"><span class="eyebrow">${escapeHtml(screen.name)}</span><h2>${escapeHtml(screen.name)}</h2><div class="route">${escapeHtml(screen.route)}</div><p class="purpose">${escapeHtml(screen.purpose)}</p>
+          <div class="badges"><span class="badge role">สิทธิ์ที่ต้องใช้: ${screen.role}</span><span class="badge status">สถานะ: Draft</span></div></div>
+        <div class="shots">${shots}</div>
+        <div class="details"><div><h3>ปุ่มสำคัญ</h3>${list(screen.actions)}</div><div><h3>จากหน้านี้ไปต่อได้ที่</h3>${list(screen.dest)}</div></div>
+      </article>`;
+    }
+    function render(){
+      const query = search.value.trim().toLocaleLowerCase('th');
+      const visible = screens.filter(s => (activeCategory === 'all' || s.category === activeCategory) && (!query || `${s.name} ${s.route}`.toLocaleLowerCase('th').includes(query)));
+      grid.innerHTML = visible.map(card).join('');
+      resultCount.textContent = `แสดง ${visible.length} จาก ${screens.length} หน้า`;
+      empty.style.display = visible.length ? 'none' : 'block';
+      document.querySelectorAll('.shot').forEach(button => button.addEventListener('click', () => openModal(button.dataset.image, button.dataset.caption)));
+    }
+    categories.forEach(([value,label]) => {
+      const button = document.createElement('button'); button.className = `filter${value==='all'?' active':''}`; button.textContent = label;
+      button.addEventListener('click',()=>{activeCategory=value;document.querySelectorAll('.filter').forEach(x=>x.classList.remove('active'));button.classList.add('active');render()}); filters.appendChild(button);
+    });
+    function openModal(src, caption){modalImage.src=src;modalImage.alt=caption;modalCaption.textContent=caption;modal.classList.add('open');document.body.style.overflow='hidden';document.getElementById('closeModal').focus()}
+    function closeModal(){modal.classList.remove('open');modalImage.src='';document.body.style.overflow=''}
+    search.addEventListener('input',render); document.getElementById('closeModal').addEventListener('click',closeModal); modal.addEventListener('click',e=>{if(e.target===modal)closeModal()}); document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+    document.getElementById('pageTotal').textContent = screens.length; document.getElementById('shotTotal').textContent = screens.reduce((sum,screen)=>sum+(screen.captures||['desktop','mobile']).length,0); render();
+  </script>
+</body>
+</html>
