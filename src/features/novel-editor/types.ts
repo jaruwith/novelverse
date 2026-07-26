@@ -81,6 +81,40 @@ export type Story = StorySummary & {
   tags: { id: string; name: string; slug: string }[];
 };
 
+export type PublicStory = {
+  id: string;
+  creatorSlug: string;
+  creatorDisplayName: string;
+  title: string;
+  slug: string;
+  synopsis: string | null;
+  languageCode: string;
+  visibility: StoryVisibility;
+  contentRating: ContentRating;
+  coverMediaAssetId: string | null;
+  coverUrl: string | null;
+  publishedAt: string;
+  updatedAt: string;
+  publishedEpisodeCount: number;
+  categories: Category[];
+  tags: { id: string; name: string; slug: string }[];
+  storyType: StoryType;
+  readingMode: ReadingMode;
+};
+
+export type PublicEpisode = {
+  id: string;
+  title: string;
+  slug: string;
+  episodeNumber: number;
+  sortOrder: number;
+  visibility: EpisodeVisibility;
+  synopsis: string | null;
+  publishedAt: string;
+  updatedAt: string;
+  wordCount: number;
+};
+
 export type Episode = {
   id: string;
   storyId: string;

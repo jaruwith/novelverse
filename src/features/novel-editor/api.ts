@@ -2,6 +2,7 @@ import type {
   Category, ContentBlockPayload, CurrentUser, DevelopmentSignInResponse, EditorBlock, Episode,
   LegalDocument, NovelContentResponse, PagedResponse, ProblemDetails, SocialProvider, Story,
   StorySummary, TokenResponse, MediaAsset, ComicPagesResponse, VideoContent,
+  PublicStory, PublicEpisode, StoryType,
 } from "./types";
 import { createLocalKey } from "./types";
 
@@ -10,6 +11,8 @@ const ACCESS_KEY = "novelverse_access_token";
 const REFRESH_KEY = "novelverse_refresh_token";
 const ACCESS_EXPIRY_KEY = "novelverse_access_token_expires_at";
 const REFRESH_EXPIRY_KEY = "novelverse_refresh_token_expires_at";
+
+const absoluteApiUrl = (url: string | null) => url ? new URL(url, API_BASE).toString() : null;
 
 export class ApiError extends Error {
   constructor(public status: number, public problem?: ProblemDetails) {
@@ -126,6 +129,28 @@ export const updateCurrentUserProfile = (displayName: string, creatorSlug: strin
 export const listStories = (page = 1, pageSize = 20) =>
   request<PagedResponse<StorySummary>>(`/api/v1/creator/stories?page=${page}&pageSize=${pageSize}`);
 export const listCategories = () => request<Category[]>("/api/v1/categories");
+export function listPublicStories(input: {
+  page?: number; pageSize?: number; storyType?: StoryType; categorySlug?: string; sort?: "LATEST" | "UPDATED";
+} = {}) {
+  const query = new URLSearchParams({
+    page: String(input.page ?? 1),
+    pageSize: String(input.pageSize ?? 12),
+    sort: input.sort ?? "LATEST",
+  });
+  if (input.storyType) query.set("storyType", input.storyType);
+  if (input.categorySlug) query.set("categorySlug", input.categorySlug);
+  return request<PagedResponse<PublicStory>>(`/api/v1/stories?${query}`).then((page) => ({
+    ...page,
+    items: page.items.map((story) => ({ ...story, coverUrl: absoluteApiUrl(story.coverUrl) })),
+  }));
+}
+export const getPublicStory = (creatorSlug: string, storySlug: string) =>
+  request<PublicStory>(`/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}`)
+    .then((story) => ({ ...story, coverUrl: absoluteApiUrl(story.coverUrl) }));
+export const listPublicEpisodes = (creatorSlug: string, storySlug: string, page = 1, pageSize = 100) =>
+  request<PagedResponse<PublicEpisode>>(
+    `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes?page=${page}&pageSize=${pageSize}`,
+  );
 export const createNovelStory = (title: string, synopsis: string, categoryId: string) =>
   createStory(title, synopsis, categoryId, "NOVEL");
 export const createComicStory = (title: string, synopsis: string, categoryId: string) =>
@@ -168,6 +193,23 @@ export async function getEpisodeContent(storyId: string, episodeId: string) {
       if (type === "IMAGE" && mediaAssetId && mediaUrl) return {
         type, textContent: null, mediaAssetId, localKey,
         mediaUrl: new URL(mediaUrl, API_BASE).toString(), width, height, mimeType,
+      };
+      return { type: "DIVIDER", textContent: null, mediaAssetId: null, localKey };
+    }),
+  };
+}
+export async function getPublicNovelContent(creatorSlug: string, storySlug: string, episodeSlug: string) {
+  const response = await request<NovelContentResponse>(
+    `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes/${encodeURIComponent(episodeSlug)}/content`,
+  );
+  return {
+    ...response,
+    blocks: response.blocks.map(({ type, textContent, mediaAssetId, mediaUrl, width, height, mimeType }): EditorBlock => {
+      const localKey = createLocalKey();
+      if (type === "TEXT") return { type, textContent: textContent ?? "", mediaAssetId: null, localKey };
+      if (type === "IMAGE" && mediaAssetId && mediaUrl) return {
+        type, textContent: null, mediaAssetId, localKey,
+        mediaUrl: absoluteApiUrl(mediaUrl), width, height, mimeType,
       };
       return { type: "DIVIDER", textContent: null, mediaAssetId: null, localKey };
     }),
