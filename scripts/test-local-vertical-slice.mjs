@@ -178,6 +178,55 @@ async function run() {
       { waitUntil: "networkidle" });
     await page.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]').waitFor();
 
+    const draftStoryTitle = `Browser E2E Draft ${runId}`;
+    await page.goto(`${baseUrl}/creator/stories`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "＋ สร้างนิยาย" }).click();
+    await page.getByLabel("ชื่อเรื่อง").fill(draftStoryTitle);
+    await page.getByRole("button", { name: "สร้าง NOVEL ฉบับร่าง" }).click();
+    await page.waitForURL(/\/creator\/stories\/[^/]+$/);
+
+    // Public discovery remains anonymous and routes each StoryType through one shared detail flow.
+    await context.clearCookies();
+    await page.evaluate(() => localStorage.clear());
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    check(!(await page.locator("body").innerText()).toLowerCase().includes("mock"),
+      "Public Home exposed mock content.");
+    await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
+    await page.getByText(comicStoryTitle, { exact: true }).waitFor();
+    await page.getByText(videoStoryTitle, { exact: true }).waitFor();
+    check(await page.getByText(draftStoryTitle, { exact: true }).count() === 0,
+      "Draft Story was discoverable on public Home.");
+
+    await page.getByRole("button", { name: "การ์ตูน" }).click();
+    await page.getByText(comicStoryTitle, { exact: true }).waitFor();
+    check(await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).count() === 0,
+      "StoryType filter did not remove NOVEL stories.");
+    await page.getByRole("button", { name: "ทั้งหมด" }).click();
+    const categoryOptions = await page.getByLabel("หมวดหมู่").locator("option").evaluateAll(
+      (options) => options.map((option) => option.value).filter(Boolean));
+    check(categoryOptions.length > 0, "Public category filter had no active categories.");
+    await page.getByLabel("หมวดหมู่").selectOption(categoryOptions[0]);
+    await page.getByText(comicStoryTitle, { exact: true }).waitFor();
+
+    await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).click();
+    await page.waitForURL(`**/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`);
+    await page.getByText("Browser E2E Creator", { exact: false }).waitFor();
+    await page.getByText(`Browser E2E Episode ${runId}`, { exact: false }).waitFor();
+    await page.getByRole("link", { name: "เปิดอ่าน" }).click();
+    await page.waitForURL(`**/read-novel/browser-e2e-${runId}/browser-e2e-story-${runId}/browser-e2e-episode-${runId}`);
+    await page.getByText(testText).waitFor();
+    await page.getByTestId("novel-content-renderer").locator("img").waitFor();
+
+    await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/${comicStorySlug}`, { waitUntil: "networkidle" });
+    await page.getByText(comicEpisodeTitle, { exact: false }).waitFor();
+    await page.getByRole("link", { name: "เปิดอ่าน" }).click();
+    await page.getByTestId("comic-reader").locator("img").waitFor();
+
+    await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-video-${runId}`, { waitUntil: "networkidle" });
+    await page.getByText(videoEpisodeTitle, { exact: false }).waitFor();
+    await page.getByRole("link", { name: "เปิดอ่าน" }).click();
+    await page.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]').waitFor();
+
     console.log(JSON.stringify({
       result: "PASS",
       storyPath: new URL(storyUrl).pathname,
@@ -190,6 +239,10 @@ async function run() {
       comicReaderVerified: true,
       videoAuthoringVerified: true,
       videoReaderVerified: true,
+      publicDiscoveryVerified: true,
+      storyDetailVerified: true,
+      publicReaderRoutingVerified: true,
+      draftExcludedFromDiscovery: true,
       mockFallbackDetected: false,
     }, null, 2));
   } catch (error) {

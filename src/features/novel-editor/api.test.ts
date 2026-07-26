@@ -4,6 +4,7 @@ import {
   publishEpisode, replaceEpisodeContent, updateEpisode, uploadNovelContentImage,
   uploadComicPage, replaceComicPages,
   createVideoStory, replaceVideoContent,
+  listPublicStories,
 } from "./api";
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -37,6 +38,20 @@ describe("verified NovelVerseApi client", () => {
     const page = await listStories();
     expect(page.items[0].title).toBe("Story");
     expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer secret");
+  });
+
+  it("loads discovery anonymously with backend filters and no mock fallback", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({
+      items: [{ id: "public-1", title: "Published", coverUrl: "/api/v1/media-assets/m1/content" }],
+      page: 2, pageSize: 12, totalItems: 13, totalPages: 2, hasPreviousPage: true, hasNextPage: false,
+    }));
+    const result = await listPublicStories({
+      page: 2, pageSize: 12, storyType: "COMIC", categorySlug: "fantasy", sort: "UPDATED",
+    });
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("http://localhost:5039/api/v1/stories?page=2&pageSize=12&sort=UPDATED&storyType=COMIC&categorySlug=fantasy");
+    expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+    expect(result.items[0].coverUrl).toBe("http://localhost:5039/api/v1/media-assets/m1/content");
   });
 
   it("maps content envelope and nullable block fields without leaking response ids", async () => {
