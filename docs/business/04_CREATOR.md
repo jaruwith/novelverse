@@ -18,7 +18,7 @@
 | CR-004 | เรื่องมีชื่อ, slug preview, description, type, story status, publication status, creator, primary category, tags และ media placeholders | Story form/mock data |
 | CR-005 | เรื่องเลือกหมวดหลักหนึ่งหมวดและเลือกแท็กได้หลายรายการ | publishing/taxonomy UI |
 | CR-006 | Story status ที่พบคือ Ongoing, Completed, Hiatus, Cancelled | mock types |
-| CR-007 | Publication status ที่พบคือ Draft, Published, Hidden, Archived | mock types |
+| CR-007 | Publication status คือ DRAFT, PUBLISHED, HIDDEN, ARCHIVED และ DELETED โดย DELETED เป็น soft delete | confirmed Product Owner decision |
 | CR-008 | Publishing form มี suitability self-rating: ทุกวัย, 13+, 18+ | Story form |
 | CR-009 | Novel chapter เก็บ structured rich content; Comic chapter มี ordered ComicPage records | confirmed architecture decision |
 | CR-010 | Creator จัดการได้เฉพาะผลงานที่ตนเป็นเจ้าของตามข้อความ UI | Stories page |
@@ -29,6 +29,9 @@
 | CR-015 | Creator delete ใช้ soft delete; Archive เป็น publication state แยก | confirmed architecture decision |
 | CR-016 | Media file อยู่นอก relational database และ MediaAsset เก็บ metadata/object key/URL | confirmed architecture decision |
 | CR-017 | CreatorSupportProfile/Method รองรับ bank, PromptPay, QR และ external links; แสดงบน Creator Profile และท้ายทุก Chapter | confirmed architecture decision |
+| CR-018 | ก่อนเผยแพร่ครั้งแรก Creator ต้องยอมรับ Creator Guidelines และ moderation rules เวอร์ชันที่มีผล | confirmed Product Owner decision |
+| CR-019 | การเปิด support method ต่อสาธารณะเป็น opt-in; Creator ต้องยืนยันสิทธิ์/permission, ตำแหน่งแสดง และ consent; bank/PromptPay เข้ารหัสและ mask, QR อยู่ Cloudflare R2 | confirmed Product Owner decision |
+| CR-020 | Creator เปลี่ยน DRAFT→PUBLISHED, PUBLISHED→ARCHIVED, ARCHIVED→PUBLISHED และ owner-controlled state→DELETED; Admin เท่านั้นที่ HIDDEN→PUBLISHED | confirmed Product Owner decision |
 
 # User Flow
 
@@ -52,10 +55,10 @@
 # Pending Product Owner Decisions
 
 - ⚠ Pending Product Owner Decision — required fields, validation, character limits, slug normalization และ reserved words
-- ⚠ Pending Product Owner Decision — final publishing workflow, review, scheduling และ revision history
+- ⚠ Pending Product Owner Decision — publishing scheduling และ revision historyที่นอกเหนือ transition ที่ยืนยันแล้ว
 - ⚠ Pending Product Owner Decision — suitability taxonomy และ content warning policy ขั้นสุดท้าย
-- ⚠ Pending Product Owner Decision — upload types, sizes, ownership/licensing, storage provider, media processing และ retention
-- ⚠ Pending Product Owner Decision — การเข้ารหัส/ปกปิดข้อมูล bank/PromptPay และ support-method validation
+- ⚠ Pending Product Owner Decision — upload types, sizes, ownership/licensing, media processing และ retention (storage provider ยืนยันเป็น Cloudflare R2)
+- ⚠ Pending Product Owner Decision — key management/rotation และรายละเอียด support-method validation
 - ⚠ Pending Product Owner Decision — ownership transfer, collaborator/co-author และ organization model
 - ⚠ Pending Product Owner Decision — analytics definitions, collection, freshness และ export
 
@@ -79,3 +82,4 @@
 |---|---|---|
 | 1.0 | 19 กรกฎาคม 2569 | รวมกฎ creator และ publishing จาก dashboard wireframe |
 | 1.1 | 19 กรกฎาคม 2569 | ยืนยัน URL/slug, chapter ordering/content/media และ creator support |
+| 1.2 | 19 กรกฎาคม 2569 | ยืนยัน support consent/security, Cloudflare R2 และ publishing transitions |

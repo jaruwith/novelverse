@@ -25,8 +25,13 @@
 | MOD-011 | Admin จัดการ primary categories และ reusable tags; category หนึ่งต่อ story และ tags หลายรายการ | Taxonomy UI |
 | MOD-012 | Action ทั้งหมดเป็น confirmation/feedback แบบ mock และไม่ persist | shared ConfirmButton, scope docs |
 | MOD-013 | Report เพียงอย่างเดียวไม่นับเป็น creator strike | confirmed Product Owner decision |
-| MOD-014 | Strike นับเมื่อ Admin ยืนยัน violation และส่ง warning emailแล้วเท่านั้น | confirmed Product Owner decision |
+| MOD-014 | Strike นับเมื่อ Admin ยืนยัน report/violation, ซ่อน Story หรือ Chapter ที่ได้รับผลกระทบ และส่ง warning emailที่มี reason และ rule reference แล้วเท่านั้น | confirmed Product Owner decision |
 | MOD-015 | ModerationAction, evidence, warning-email audit และ resulting content state ต้องเก็บว่าใครทำ เมื่อใด และเพราะอะไร | confirmed architecture decision |
+| MOD-016 | Creator Strike คือ confirmed content-policy violation ไม่ใช่ API attack หรือ security incident | confirmed Product Owner decision |
+| MOD-017 | Strike 1 และ 2 เป็น warning และ affected content ยังคง Hidden | confirmed Product Owner decision |
+| MOD-018 | Strike active ลำดับที่ 3 ระงับสิทธิ์ publish 7 วันพอดี; automatic expiry คืนเฉพาะสิทธิ์ publish | confirmed Product Owner decision |
+| MOD-019 | ระหว่าง suspension Creator เข้า Dashboard/แก้ hidden content ได้ แต่สร้างหรือ publish Story/Chapter ใหม่ไม่ได้; reader access และผลงานอื่นไม่เปลี่ยน | confirmed Product Owner decision |
+| MOD-020 | Hidden content ไม่ restore อัตโนมัติ; Admin ต้อง review/restore เอง และ security abuse controls เป็น Future แยกจาก Strike | confirmed Product Owner decision |
 
 # User Flow
 
@@ -51,8 +56,8 @@
 
 - ⚠ Pending Product Owner Decision — moderation policy, reason taxonomy และ prohibited content
 - ⚠ Pending Product Owner Decision — report lifecycle/state machine ที่สมบูรณ์และ moderation SLA
-- ⚠ Pending Product Owner Decision — assignment, evidence retention, strike expiry/reversal/threshold และ appeal
-- ⚠ Pending Product Owner Decision — suspension duration, account recovery และ admin permission tiers
+- ⚠ Pending Product Owner Decision — assignment, evidence retention, strike expiry/reversal และ appeal
+- ⚠ Pending Product Owner Decision — exceptional manual suspension lift, account recovery และ admin permission tiers
 - ⚠ Pending Product Owner Decision — Hidden/Archived visibility ต่อ owner, reporter และ public ใน production
 
 # Future Ideas
@@ -74,3 +79,4 @@
 |---|---|---|
 | 1.0 | 19 กรกฎาคม 2569 | รวมกฎ moderation จาก Member/Admin wireframe |
 | 1.1 | 19 กรกฎาคม 2569 | ยืนยัน safe report targets, ModerationAction, warning audit และ strike qualification |
+| 1.2 | 19 กรกฎาคม 2569 | ยืนยัน strike qualification, strike 1–3, suspension 7 วัน และ manual content restoration |

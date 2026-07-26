@@ -12,12 +12,12 @@
 
 | Domain | Rule Range | จำนวนกฎ | เอกสาร |
 |---|---:|---:|---|
-| Membership | MBR-001–MBR-012 | 12 | [01_MEMBERSHIP.md](01_MEMBERSHIP.md) |
+| Membership | MBR-001–MBR-015 | 15 | [01_MEMBERSHIP.md](01_MEMBERSHIP.md) |
 | Advertisement | AD-001–AD-017 | 17 | [02_ADVERTISEMENT.md](02_ADVERTISEMENT.md) |
 | Reading | RD-001–RD-012 | 12 | [03_READING.md](03_READING.md) |
-| Creator | CR-001–CR-017 | 17 | [04_CREATOR.md](04_CREATOR.md) |
-| Moderation | MOD-001–MOD-015 | 15 | [05_MODERATION.md](05_MODERATION.md) |
-| Monetization | MON-001–MON-010 | 10 | [06_MONETIZATION.md](06_MONETIZATION.md) |
+| Creator | CR-001–CR-020 | 20 | [04_CREATOR.md](04_CREATOR.md) |
+| Moderation | MOD-001–MOD-020 | 20 | [05_MODERATION.md](05_MODERATION.md) |
+| Monetization | MON-001–MON-011 | 11 | [06_MONETIZATION.md](06_MONETIZATION.md) |
 
 กฎข้าม domain ให้อ้างเจ้าของกฎหลักเพียงแห่งเดียว เช่น advertisement eligibility อยู่ใน AD-009 และเอกสาร Membership/Monetization อ้างความสัมพันธ์แทนการสร้างกฎใหม่
 
@@ -44,13 +44,16 @@ Admin  → Admin area → Users / Stories / Comments / Reports / Categories / Ta
 - Public URL/slug scope, chapter display order, structured Novel content, ComicPage และ external MediaAsset storage ได้รับการยืนยัน
 - Report targets มี referential integrity; strike เกิดหลัง confirmed violation และ warning emailเท่านั้น
 - Creator support ส่งเงินตรงถึง Creator; รายได้ NovelVerse มาจาก ads และ ad-free membership
+- First login/first publication/public support display มี versioned legal acceptance ตามจังหวะที่ยืนยัน
+- Bank/PromptPay เข้ารหัสและ mask; mediaทุกประเภทใช้ Cloudflare R2
+- Strike ลำดับที่ 3 ระงับเฉพาะ publishing 7 วัน; hidden contentยังต้อง Admin restore
 
 # Pending Product Owner Decisions
 
 - ⚠ Pending Product Owner Decision — account merge/unlink/recovery, deletion และ production authorization
-- ⚠ Pending Product Owner Decision — final publishing/content/moderation policies
-- ⚠ Pending Product Owner Decision — media provider/limits/retention และ rich-content schema versioning
-- ⚠ Pending Product Owner Decision — pricing, payment, subscription, advertiser billing และ support-data security
+- ⚠ Pending Product Owner Decision — publishing scheduling, strike expiry/reversal/appeal และ moderation reason taxonomy
+- ⚠ Pending Product Owner Decision — media limits/retention และ rich-content schema versioning (provider ยืนยันเป็น Cloudflare R2)
+- ⚠ Pending Product Owner Decision — pricing, payment, subscription, advertiser billing และ support encryption key management
 - ⚠ Pending Product Owner Decision — privacy, analytics, retention, accessibility และ operational SLA
 
 # Future Ideas
@@ -77,3 +80,4 @@ Admin  → Admin area → Users / Stories / Comments / Reports / Categories / Ta
 |---|---|---|
 | 1.0 | 19 กรกฎาคม 2569 | สร้าง consolidated business rule index หลัง wireframe review |
 | 1.1 | 19 กรกฎาคม 2569 | รวมคำตัดสิน architecture ล่าสุดด้าน identity, content, moderation และ creator support |
+| 1.2 | 19 กรกฎาคม 2569 | รวม legal consent, support privacy, publishing transitions และ seven-day publishing suspension |
