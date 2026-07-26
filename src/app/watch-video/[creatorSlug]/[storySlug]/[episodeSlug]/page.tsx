@@ -1,0 +1,25 @@
+"use client";
+
+import { use, useEffect, useState } from "react";
+import { apiErrorMessage, getPublicVideoContent } from "@/features/novel-editor/api";
+import type { VideoContent } from "@/features/novel-editor/types";
+
+export default function VideoReaderPage({ params }: {
+  params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
+}) {
+  const { creatorSlug, storySlug, episodeSlug } = use(params);
+  const [content, setContent] = useState<VideoContent | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    getPublicVideoContent(creatorSlug, storySlug, episodeSlug).then(setContent)
+      .catch((reason) => setError(apiErrorMessage(reason)));
+  }, [creatorSlug, storySlug, episodeSlug]);
+  if (error) return <main><p role="alert">{error}</p></main>;
+  if (!content) return <main><p>กำลังโหลด…</p></main>;
+  return <main>
+    <h1>{content.title ?? "Video"}</h1>
+    <iframe width="560" height="315" src={`https://www.youtube-nocookie.com/embed/${content.videoId}`}
+      title={content.title ?? "YouTube video player"} allowFullScreen
+      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
+  </main>;
+}
