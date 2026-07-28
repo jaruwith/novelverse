@@ -93,6 +93,11 @@ async function createSearchFixture(page, fixture) {
 }
 
 async function run() {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const health = await fetch("http://localhost:5039/api/v1/health").catch(() => null);
+    if (!health || !health.ok) throw new Error("NovelVerse API is not healthy at http://localhost:5039. Start it with scripts/start-local-api.ps1 and inspect %TEMP%\\novelverse-api logs.");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ locale: "th-TH" });
   const page = await context.newPage();
