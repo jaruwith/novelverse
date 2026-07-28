@@ -73,6 +73,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   try {
     response = await fetch(`${API_BASE}${path}`, {
       ...init,
+      credentials: "include",
       headers: {
         Accept: "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -92,6 +93,28 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+export type StartEngagementRequest = {
+  targetType: "STORY" | "EPISODE"; targetId: string; clientSessionKey: string; idempotencyKey: string;
+};
+export type EngagementSessionResult = {
+  sessionId: string; targetType: "STORY" | "EPISODE"; startedAt: string;
+  heartbeatIntervalSeconds: number; inactivityTimeoutSeconds: number;
+  countedNewView: boolean; qualified: boolean; completed: boolean;
+};
+export type EngagementActivityPayload = {
+  idempotencyKey: string; sequence: number; clientSessionKey: string;
+  evidenceType: "HEARTBEAT" | "PROGRESS" | "COMPLETION" | "END";
+  reportedActiveSeconds: number; progressPercent: number; reachedContentId?: string;
+  finalContentReached?: boolean; playbackSeconds?: number; durationSeconds?: number; providerEnded?: boolean;
+  reachedPosition?: number; totalItems?: number;
+};
+export const startEngagementSession = (body: StartEngagementRequest) =>
+  request<EngagementSessionResult>("/api/v1/engagement/sessions", { method: "POST", body: JSON.stringify(body) });
+export const sendEngagementActivity = (sessionId: string, body: EngagementActivityPayload) =>
+  request<void>(`/api/v1/engagement/sessions/${sessionId}/activity`, { method: "POST", body: JSON.stringify(body) });
+export const endEngagementSession = (sessionId: string) =>
+  request<void>(`/api/v1/engagement/sessions/${sessionId}/end`, { method: "POST" });
 
 export function apiErrorMessage(error: unknown) {
   if (!(error instanceof ApiError)) return "เกิดข้อผิดพลาด กรุณาลองอีกครั้ง";
@@ -239,14 +262,14 @@ export async function getEpisodeContent(storyId: string, episodeId: string) {
   );
   return {
     ...response,
-    blocks: response.blocks.map(({ type, textContent, mediaAssetId, mediaUrl, width, height, mimeType }): EditorBlock => {
+    blocks: response.blocks.map(({ id, type, textContent, mediaAssetId, mediaUrl, width, height, mimeType }): EditorBlock => {
       const localKey = createLocalKey();
-      if (type === "TEXT") return { type, textContent: textContent ?? "", mediaAssetId: null, localKey };
+      if (type === "TEXT") return { type, textContent: textContent ?? "", mediaAssetId: null, localKey, persistedId: id };
       if (type === "IMAGE" && mediaAssetId && mediaUrl) return {
-        type, textContent: null, mediaAssetId, localKey,
+        type, textContent: null, mediaAssetId, localKey, persistedId: id,
         mediaUrl: new URL(mediaUrl, API_BASE).toString(), width, height, mimeType,
       };
-      return { type: "DIVIDER", textContent: null, mediaAssetId: null, localKey };
+      return { type: "DIVIDER", textContent: null, mediaAssetId: null, localKey, persistedId: id };
     }),
   };
 }

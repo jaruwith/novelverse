@@ -10,6 +10,7 @@ import type { PublicEpisode, PublicStory } from "@/features/novel-editor/types";
 import { resolvePublicEpisodeHref } from "./routes";
 import styles from "./publicDiscovery.module.css";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
+import { EngagementSessionController } from "@/features/engagement/controller";
 
 export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; storySlug: string }) {
   const [story, setStory] = useState<PublicStory | null>(null);
@@ -43,6 +44,12 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
     listLibrary(1, 100).then((result) => {
       setBookmarked(result.items.some((item) => item.storyId === story.id));
     }).catch(() => undefined);
+  }, [story]);
+  useEffect(() => {
+    if (!story) return;
+    const controller = new EngagementSessionController({ targetType: "STORY", targetId: story.id });
+    void controller.start();
+    return () => { void controller.stop(); };
   }, [story]);
 
   async function toggleBookmark() {

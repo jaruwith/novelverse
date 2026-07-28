@@ -6,6 +6,8 @@ import { NovelContentRenderer } from "@/features/novel-editor/NovelContentRender
 import type { EditorBlock } from "@/features/novel-editor/types";
 import { recordEpisodeProgress } from "@/features/reader-state/progress";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
+import { EngagementSessionController } from "@/features/engagement/controller";
+import { buildOrderedContentEvidence } from "@/features/engagement/evidence";
 
 export default function NovelReaderPage({ params }: {
   params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
@@ -25,6 +27,16 @@ export default function NovelReaderPage({ params }: {
     })
       .catch((reason) => setError(apiErrorMessage(reason)));
   }, [creatorSlug, episodeSlug, storySlug]);
+  useEffect(() => {
+    if (!episodeId || !blocks?.length) return;
+    const evidence = () => {
+      const progress = ((window.scrollY + window.innerHeight) /
+        document.documentElement.scrollHeight) * 100;
+      return buildOrderedContentEvidence(blocks.map((block) => block.persistedId), progress);
+    };
+    const controller = new EngagementSessionController({ targetType: "EPISODE", targetId: episodeId }, evidence);
+    void controller.start(); return () => { void controller.stop(); };
+  }, [blocks, episodeId]);
   if (error) return <main className="reader"><p role="alert">{error}</p></main>;
   if (!blocks) return <main className="reader"><p role="status">กำลังโหลดเนื้อหา…</p></main>;
   return <main className="reader" data-testid="novel-reader"><NovelContentRenderer blocks={blocks} />

@@ -175,7 +175,7 @@ export type Episode = {
   wordCount: number;
 };
 
-type BlockBase = { localKey: string };
+type BlockBase = { localKey: string; persistedId?: string };
 export type TextBlock = BlockBase & { type: "TEXT"; textContent: string; mediaAssetId: null };
 export type ImageBlock = BlockBase & {
   type: "IMAGE"; textContent: null; mediaAssetId: string; mediaUrl?: string | null;

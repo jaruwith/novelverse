@@ -5,6 +5,8 @@ import { apiErrorMessage, getPublicStory, getPublicVideoContent } from "@/featur
 import type { VideoContent } from "@/features/novel-editor/types";
 import { recordEpisodeProgress } from "@/features/reader-state/progress";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
+import { EngagementSessionController } from "@/features/engagement/controller";
+import { unsupportedVideoEvidence } from "@/features/engagement/evidence";
 
 export default function VideoReaderPage({ params }: {
   params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
@@ -22,6 +24,15 @@ export default function VideoReaderPage({ params }: {
     })
       .catch((reason) => setError(apiErrorMessage(reason)));
   }, [creatorSlug, storySlug, episodeSlug]);
+  useEffect(() => {
+    if (!content) return;
+    // youtube-nocookie iframe is not currently wired to the official Player API.
+    // Session heartbeats intentionally contain no playback/completion evidence.
+    const controller = new EngagementSessionController(
+      { targetType: "EPISODE", targetId: content.episodeId },
+      unsupportedVideoEvidence);
+    void controller.start(); return () => { void controller.stop(); };
+  }, [content]);
   if (error) return <main><p role="alert">{error}</p></main>;
   if (!content) return <main><p>กำลังโหลด…</p></main>;
   return <main>
