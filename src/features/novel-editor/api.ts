@@ -4,6 +4,7 @@ import type {
   StorySummary, TokenResponse, MediaAsset, ComicPagesResponse, VideoContent,
   PublicStory, PublicEpisode, StoryType,
   LibraryStory, ReadingProgress,
+  ModerationReason, ModerationReport, ModerationReportStatus, ModerationTargetType,
 } from "./types";
 import { createLocalKey } from "./types";
 
@@ -175,6 +176,33 @@ export const upsertReadingProgress = (storyId: string, episodeId: string) =>
   request<ReadingProgress>("/api/v1/me/reading-progress", {
     method: "PUT", body: JSON.stringify({ storyId, episodeId }),
   });
+export const submitModerationReport = (targetType: ModerationTargetType, targetId: string,
+  reason: ModerationReason, comment: string | null) =>
+  request<{ id: string; status: ModerationReportStatus; createdAt: string }>("/api/v1/moderation/reports", {
+    method: "POST", body: JSON.stringify({ targetType, targetId, reason, comment }),
+  });
+export const listModerationReports = (input: {
+  status?: ModerationReportStatus; targetType?: ModerationTargetType;
+  sort?: "NEWEST" | "OLDEST"; page?: number; pageSize?: number;
+} = {}) => {
+  const query = new URLSearchParams({
+    sort: input.sort ?? "NEWEST", page: String(input.page ?? 1), pageSize: String(input.pageSize ?? 20),
+  });
+  if (input.status) query.set("status", input.status);
+  if (input.targetType) query.set("targetType", input.targetType);
+  return request<PagedResponse<ModerationReport>>(`/api/v1/moderation/reports?${query}`);
+};
+export const updateModerationWorkflow = (reportId: string,
+  status: "UNDER_REVIEW" | "DISMISSED" | "ACTION_TAKEN", note: string | null = null) =>
+  request<ModerationReport>(`/api/v1/moderation/reports/${reportId}/workflow`, {
+    method: "PATCH", body: JSON.stringify({ status, note }),
+  });
+export const moderateTarget = (operation: "hide" | "restore", input: {
+  targetType: ModerationTargetType; targetId: string; reportId?: string | null;
+  reasonCode: ModerationReason; note?: string | null;
+}) => request<{ targetType: ModerationTargetType; targetId: string; state: "VISIBLE" | "HIDDEN" }>(
+  `/api/v1/moderation/actions/${operation}`, { method: "POST", body: JSON.stringify(input) },
+);
 export const createNovelStory = (title: string, synopsis: string, categoryId: string) =>
   createStory(title, synopsis, categoryId, "NOVEL");
 export const createComicStory = (title: string, synopsis: string, categoryId: string) =>

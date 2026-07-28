@@ -9,6 +9,7 @@ import {
 import type { PublicEpisode, PublicStory } from "@/features/novel-editor/types";
 import { resolvePublicEpisodeHref } from "./routes";
 import styles from "./publicDiscovery.module.css";
+import { ReportDialog } from "@/features/moderation/ReportDialog";
 
 export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; storySlug: string }) {
   const [story, setStory] = useState<PublicStory | null>(null);
@@ -87,6 +88,7 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
               บันทึกเข้าคลัง
             </Link>}
           {bookmarkError && <p role="alert">{bookmarkError}</p>}
+          <ReportDialog targetType="STORY" targetId={story.id} targetSummary={story.title} />
           <div className="tagRow">
             {story.categories.map((category) => <span className="tag" key={category.id}>{category.name}</span>)}
             {story.tags.map((tag) => <span className="tag" key={tag.id}>#{tag.name}</span>)}

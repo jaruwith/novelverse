@@ -80,9 +80,10 @@ export function LibraryPage() {
       <h2>เรื่องที่บันทึกไว้</h2>
       {!bookmarks.length && <p>ยังไม่มีเรื่องที่บันทึกไว้</p>}
       {bookmarks.map((story) => <article key={story.storyId}>
-        <h3><Link href={`/stories/${encodeURIComponent(story.creatorSlug)}/${encodeURIComponent(story.storySlug)}`}>
-          {story.title}
-        </Link></h3>
+        <h3>{story.isAvailable !== false
+          ? <Link href={`/stories/${encodeURIComponent(story.creatorSlug)}/${encodeURIComponent(story.storySlug)}`}>{story.title}</Link>
+          : story.title}</h3>
+        {story.isAvailable === false && <p role="status">เนื้อหานี้ไม่พร้อมให้บริการ</p>}
         <p>โดย {story.creatorDisplayName} · {story.storyType}</p>
         <div className="tagRow">{story.categories.map((category) =>
           <span className="tag" key={category.id}>{category.name}</span>)}</div>

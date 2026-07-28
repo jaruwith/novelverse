@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { apiErrorMessage, getPublicStory, getPublicVideoContent } from "@/features/novel-editor/api";
 import type { VideoContent } from "@/features/novel-editor/types";
 import { recordEpisodeProgress } from "@/features/reader-state/progress";
+import { ReportDialog } from "@/features/moderation/ReportDialog";
 
 export default function VideoReaderPage({ params }: {
   params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
@@ -28,5 +29,6 @@ export default function VideoReaderPage({ params }: {
     <iframe width="560" height="315" src={`https://www.youtube-nocookie.com/embed/${content.videoId}`}
       title={content.title ?? "YouTube video player"} allowFullScreen
       allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
+    <ReportDialog targetType="EPISODE" targetId={content.episodeId} targetSummary={episodeSlug} />
   </main>;
 }

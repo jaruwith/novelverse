@@ -18,6 +18,7 @@ export type CurrentUser = {
   creatorSlug: string | null;
   activatedAt: string | null;
   createdAt: string;
+  role: "USER" | "MODERATOR";
 };
 
 export type TokenResponse = {
@@ -130,6 +131,19 @@ export type LibraryStory = {
   coverUrl: string | null;
   categories: Category[];
   bookmarkedAt: string;
+  isAvailable?: boolean;
+  unavailableReason?: string | null;
+};
+
+export type ModerationTargetType = "STORY" | "EPISODE" | "USER";
+export type ModerationReason = "SPAM" | "COPYRIGHT" | "HARASSMENT" | "HATE" | "SEXUAL_CONTENT" |
+  "VIOLENCE" | "SELF_HARM" | "MISINFORMATION" | "IMPERSONATION" | "PRIVACY" | "OTHER";
+export type ModerationReportStatus = "OPEN" | "UNDER_REVIEW" | "ACTION_TAKEN" | "DISMISSED";
+export type ModerationReport = {
+  id: string; reporterUserId: string; targetType: ModerationTargetType; targetId: string;
+  reason: ModerationReason; comment: string | null; status: ModerationReportStatus;
+  assignedModeratorUserId: string | null; resolutionNote: string | null;
+  createdAt: string; updatedAt: string; reviewedAt: string | null; resolvedAt: string | null;
 };
 
 export type ReadingProgress = {
