@@ -1,7 +1,10 @@
 "use client";
+
 import { use, useEffect, useState } from "react";
-import { getPublicComicPages } from "@/features/novel-editor/api";
+import { getPublicComicPages, getPublicStory } from "@/features/novel-editor/api";
 import type { ComicPage } from "@/features/novel-editor/types";
+import { recordEpisodeProgress } from "@/features/reader-state/progress";
+
 export default function ComicReader({ params }: {
   params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
 }) {
@@ -9,8 +12,13 @@ export default function ComicReader({ params }: {
   const [pages, setPages] = useState<ComicPage[]>([]);
   const [error, setError] = useState("");
   useEffect(() => {
-    getPublicComicPages(creatorSlug, storySlug, episodeSlug)
-      .then((result) => setPages(result.pages)).catch(() => setError("ไม่พบหน้าการ์ตูน"));
+    Promise.all([
+      getPublicComicPages(creatorSlug, storySlug, episodeSlug),
+      getPublicStory(creatorSlug, storySlug),
+    ]).then(([result, story]) => {
+      setPages(result.pages);
+      void recordEpisodeProgress(story.id, result.episodeId);
+    }).catch(() => setError("ไม่พบหน้าการ์ตูน"));
   }, [creatorSlug, storySlug, episodeSlug]);
   if (error) return <main role="alert">{error}</main>;
   return <main className="comicCanvas" data-testid="comic-reader">{pages.map((page, index) =>

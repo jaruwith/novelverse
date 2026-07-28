@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { apiErrorMessage, listCategories, listPublicStories } from "@/features/novel-editor/api";
 import type { Category, PagedResponse, PublicStory, StoryType } from "@/features/novel-editor/types";
 import styles from "./publicDiscovery.module.css";
+import { ContinueReading } from "@/features/reader-state/ContinueReading";
 
 const types: { label: string; value: StoryType | "" }[] = [
   { label: "ทั้งหมด", value: "" },
@@ -47,6 +48,7 @@ export function PublicHome() {
 
   return (
     <div className="container">
+      <ContinueReading />
       <section className={styles.heading}>
         <span className="eyebrow">เรื่องที่เผยแพร่ล่าสุด</span>
         <h1>ค้นพบเรื่องราวบน NovelVerse</h1>

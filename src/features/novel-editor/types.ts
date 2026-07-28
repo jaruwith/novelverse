@@ -115,6 +115,31 @@ export type PublicEpisode = {
   wordCount: number;
 };
 
+export type LibraryStory = {
+  storyId: string;
+  title: string;
+  storySlug: string;
+  creatorSlug: string;
+  creatorDisplayName: string;
+  synopsis: string | null;
+  storyType: StoryType;
+  coverUrl: string | null;
+  categories: Category[];
+  bookmarkedAt: string;
+};
+
+export type ReadingProgress = {
+  storyId: string;
+  storyTitle: string;
+  storySlug: string;
+  creatorSlug: string;
+  storyType: StoryType;
+  episodeId: string;
+  episodeTitle: string;
+  episodeSlug: string;
+  lastAccessedAt: string;
+};
+
 export type Episode = {
   id: string;
   storyId: string;

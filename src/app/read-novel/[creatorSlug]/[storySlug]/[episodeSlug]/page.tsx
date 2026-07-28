@@ -1,9 +1,10 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { apiErrorMessage, getPublicNovelContent } from "@/features/novel-editor/api";
+import { apiErrorMessage, getPublicNovelContent, getPublicStory } from "@/features/novel-editor/api";
 import { NovelContentRenderer } from "@/features/novel-editor/NovelContentRenderer";
 import type { EditorBlock } from "@/features/novel-editor/types";
+import { recordEpisodeProgress } from "@/features/reader-state/progress";
 
 export default function NovelReaderPage({ params }: {
   params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
@@ -12,8 +13,13 @@ export default function NovelReaderPage({ params }: {
   const [blocks, setBlocks] = useState<EditorBlock[] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    getPublicNovelContent(creatorSlug, storySlug, episodeSlug)
-      .then((content) => setBlocks(content.blocks))
+    Promise.all([
+      getPublicNovelContent(creatorSlug, storySlug, episodeSlug),
+      getPublicStory(creatorSlug, storySlug),
+    ]).then(([content, story]) => {
+      setBlocks(content.blocks);
+      void recordEpisodeProgress(story.id, content.episodeId);
+    })
       .catch((reason) => setError(apiErrorMessage(reason)));
   }, [creatorSlug, episodeSlug, storySlug]);
   if (error) return <main className="reader"><p role="alert">{error}</p></main>;

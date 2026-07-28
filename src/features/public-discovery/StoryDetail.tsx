@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { apiErrorMessage, getPublicStory, listPublicEpisodes } from "@/features/novel-editor/api";
+import {
+  addBookmark, apiErrorMessage, getPublicStory, hasSession, listLibrary,
+  listPublicEpisodes, removeBookmark,
+} from "@/features/novel-editor/api";
 import type { PublicEpisode, PublicStory } from "@/features/novel-editor/types";
 import { resolvePublicEpisodeHref } from "./routes";
 import styles from "./publicDiscovery.module.css";
@@ -13,6 +16,9 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
+  const [bookmarked, setBookmarked] = useState(false);
+  const [bookmarkBusy, setBookmarkBusy] = useState(false);
+  const [bookmarkError, setBookmarkError] = useState("");
   useEffect(() => {
     let active = true;
     Promise.all([
@@ -31,6 +37,27 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
     });
     return () => { active = false; };
   }, [creatorSlug, retryKey, storySlug]);
+  useEffect(() => {
+    if (!story || !hasSession()) return;
+    listLibrary(1, 100).then((result) => {
+      setBookmarked(result.items.some((item) => item.storyId === story.id));
+    }).catch(() => undefined);
+  }, [story]);
+
+  async function toggleBookmark() {
+    if (!story) return;
+    setBookmarkBusy(true);
+    setBookmarkError("");
+    try {
+      if (bookmarked) await removeBookmark(story.id);
+      else await addBookmark(story.id);
+      setBookmarked((value) => !value);
+    } catch (reason) {
+      setBookmarkError(apiErrorMessage(reason));
+    } finally {
+      setBookmarkBusy(false);
+    }
+  }
 
   if (loading) return <main className="container"><p role="status">กำลังโหลดรายละเอียดเรื่อง…</p></main>;
   if (error || !story) return <main className="container"><div role="alert" className={styles.state}>
@@ -52,6 +79,14 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
           <p>โดย {story.creatorDisplayName}</p>
           <p>{story.synopsis || "ยังไม่มีเรื่องย่อ"}</p>
           <p>ระดับเนื้อหา: {story.contentRating} · เผยแพร่ {new Date(story.publishedAt).toLocaleDateString("th-TH")}</p>
+          {hasSession()
+            ? <button type="button" disabled={bookmarkBusy} onClick={() => void toggleBookmark()}>
+              {bookmarkBusy ? "กำลังบันทึก…" : bookmarked ? "นำออกจากคลัง" : "บันทึกเข้าคลัง"}
+            </button>
+            : <Link className="primaryButton" href={`/login?next=${encodeURIComponent(`/stories/${creatorSlug}/${storySlug}`)}`}>
+              บันทึกเข้าคลัง
+            </Link>}
+          {bookmarkError && <p role="alert">{bookmarkError}</p>}
           <div className="tagRow">
             {story.categories.map((category) => <span className="tag" key={category.id}>{category.name}</span>)}
             {story.tags.map((tag) => <span className="tag" key={tag.id}>#{tag.name}</span>)}

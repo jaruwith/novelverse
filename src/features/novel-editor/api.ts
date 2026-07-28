@@ -3,6 +3,7 @@ import type {
   LegalDocument, NovelContentResponse, PagedResponse, ProblemDetails, SocialProvider, Story,
   StorySummary, TokenResponse, MediaAsset, ComicPagesResponse, VideoContent,
   PublicStory, PublicEpisode, StoryType,
+  LibraryStory, ReadingProgress,
 } from "./types";
 import { createLocalKey } from "./types";
 
@@ -151,6 +152,22 @@ export const listPublicEpisodes = (creatorSlug: string, storySlug: string, page 
   request<PagedResponse<PublicEpisode>>(
     `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes?page=${page}&pageSize=${pageSize}`,
   );
+export const addBookmark = (storyId: string) =>
+  request<LibraryStory>(`/api/v1/me/library/stories/${encodeURIComponent(storyId)}`, { method: "POST" })
+    .then((story) => ({ ...story, coverUrl: absoluteApiUrl(story.coverUrl) }));
+export const removeBookmark = (storyId: string) =>
+  request<void>(`/api/v1/me/library/stories/${encodeURIComponent(storyId)}`, { method: "DELETE" });
+export const listLibrary = (page = 1, pageSize = 20) =>
+  request<PagedResponse<LibraryStory>>(`/api/v1/me/library?page=${page}&pageSize=${pageSize}`)
+    .then((result) => ({ ...result, items: result.items.map((story) => ({
+      ...story, coverUrl: absoluteApiUrl(story.coverUrl),
+    })) }));
+export const listReadingProgress = (page = 1, pageSize = 10) =>
+  request<PagedResponse<ReadingProgress>>(`/api/v1/me/reading-progress?page=${page}&pageSize=${pageSize}`);
+export const upsertReadingProgress = (storyId: string, episodeId: string) =>
+  request<ReadingProgress>("/api/v1/me/reading-progress", {
+    method: "PUT", body: JSON.stringify({ storyId, episodeId }),
+  });
 export const createNovelStory = (title: string, synopsis: string, categoryId: string) =>
   createStory(title, synopsis, categoryId, "NOVEL");
 export const createComicStory = (title: string, synopsis: string, categoryId: string) =>

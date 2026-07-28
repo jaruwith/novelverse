@@ -1,8 +1,9 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { apiErrorMessage, getPublicVideoContent } from "@/features/novel-editor/api";
+import { apiErrorMessage, getPublicStory, getPublicVideoContent } from "@/features/novel-editor/api";
 import type { VideoContent } from "@/features/novel-editor/types";
+import { recordEpisodeProgress } from "@/features/reader-state/progress";
 
 export default function VideoReaderPage({ params }: {
   params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
@@ -11,7 +12,13 @@ export default function VideoReaderPage({ params }: {
   const [content, setContent] = useState<VideoContent | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    getPublicVideoContent(creatorSlug, storySlug, episodeSlug).then(setContent)
+    Promise.all([
+      getPublicVideoContent(creatorSlug, storySlug, episodeSlug),
+      getPublicStory(creatorSlug, storySlug),
+    ]).then(([video, story]) => {
+      setContent(video);
+      void recordEpisodeProgress(story.id, video.episodeId);
+    })
       .catch((reason) => setError(apiErrorMessage(reason)));
   }, [creatorSlug, storySlug, episodeSlug]);
   if (error) return <main><p role="alert">{error}</p></main>;
