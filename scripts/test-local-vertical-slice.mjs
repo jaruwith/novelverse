@@ -2,9 +2,11 @@ import { chromium } from "playwright";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { deflateSync } from "node:zlib";
 
 const baseUrl = "http://localhost:3000";
+const apiUrl = "http://localhost:5039";
 const runId = crypto.randomUUID().replaceAll("-", "").slice(0, 10);
 const testText = `NovelVerse browser E2E content ${runId}`;
 const screenshotPath = path.join(os.tmpdir(), `novelverse-e2e-failure-${runId}.png`);
@@ -12,6 +14,93 @@ const imagePath = path.join(os.tmpdir(), `novelverse-e2e-${runId}.png`);
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function apiCall(route, { token, method = "GET", body } = {}) {
+  const response = await fetch(`${apiUrl}${route}`, {
+    method,
+    headers: {
+      Accept: "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const content = response.status === 204 ? null : await response.json().catch(() => null);
+  return { response, content };
+}
+
+async function createSocialUser(prefix, displayName) {
+  const identity = {
+    provider: "GOOGLE",
+    providerSubject: `${prefix}-${runId}`,
+    email: `${prefix}-${runId}@browser-e2e.test`,
+    displayName,
+  };
+  const first = await apiCall("/api/v1/dev/auth/social-sign-in", { method: "POST", body: identity });
+  check(first.response.ok, `${displayName} initial development sign-in failed.`);
+  const documents = await apiCall("/api/v1/legal-documents/current", {
+    token: first.content.tokens.accessToken,
+  });
+  const required = documents.content.filter((item) => item.isRequired).map((item) => item.id);
+  const accepted = await apiCall("/api/v1/legal-acceptances", {
+    token: first.content.tokens.accessToken,
+    method: "POST",
+    body: { legalDocumentIds: required, acceptanceSource: "DEVELOPMENT" },
+  });
+  check(accepted.response.ok, `${displayName} legal acceptance failed.`);
+  const slug = `${prefix}-${runId}`;
+  const profile = await apiCall("/api/v1/users/me/profile", {
+    token: first.content.tokens.accessToken,
+    method: "PUT",
+    body: { displayName, creatorSlug: slug },
+  });
+  check(profile.response.ok, `${displayName} profile setup failed.`);
+  const signed = await apiCall("/api/v1/dev/auth/social-sign-in", { method: "POST", body: identity });
+  check(signed.response.ok, `${displayName} final development sign-in failed.`);
+  return { id: signed.content.user.id, slug, identity, tokens: signed.content.tokens };
+}
+
+async function setBrowserSession(page, tokens) {
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await page.evaluate((value) => {
+    localStorage.setItem("novelverse_access_token", value.accessToken);
+    localStorage.setItem("novelverse_refresh_token", value.refreshToken);
+    localStorage.setItem("novelverse_access_token_expires_at", value.accessTokenExpiresAt);
+    localStorage.setItem("novelverse_refresh_token_expires_at", value.refreshTokenExpiresAt);
+  }, tokens);
+}
+
+function sqlLiteral(value) {
+  check(/^[a-zA-Z0-9-]+$/.test(value), "Unsafe value supplied to E2E database assertion.");
+  return `'${value}'`;
+}
+
+function databaseScalar(sql) {
+  const output = execFileSync("docker", [
+    "exec", "novelverse-postgres", "psql",
+    "-U", "novelverse", "-d", "novelverse",
+    "-v", "ON_ERROR_STOP=1", "-t", "-A", "-c", sql,
+  ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  return Number(output.trim());
+}
+
+function storyLikeCount(storyId, userId) {
+  const actor = userId ? ` AND "UserId" = ${sqlLiteral(userId)}::uuid` : "";
+  return databaseScalar(
+    `SELECT count(*) FROM story_likes WHERE "StoryId" = ${sqlLiteral(storyId)}::uuid${actor};`,
+  );
+}
+
+function creatorFollowCount(creatorSlug, followerUserId) {
+  const actor = followerUserId
+    ? ` AND follow."FollowerUserId" = ${sqlLiteral(followerUserId)}::uuid`
+    : "";
+  return databaseScalar(
+    `SELECT count(*) FROM creator_follows follow
+     JOIN user_profiles profile ON profile.id = follow."CreatorProfileId"
+     WHERE profile.creator_slug = ${sqlLiteral(creatorSlug)}${actor};`,
+  );
 }
 
 function crc32(buffer) {
@@ -450,6 +539,290 @@ async function run() {
     check((await page.getByText(/views|ยอดดู|ครั้งที่อ่าน/i).count()) === 0,
       "Public engagement count UI was unexpectedly rendered.");
 
+    // Social Engagement: real browser UI, JWT authentication, API, and PostgreSQL persistence.
+    const publicStoryPath = `/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`;
+    const creatorSlug = `browser-e2e-${runId}`;
+    const creatorSignIn = await apiCall("/api/v1/dev/auth/social-sign-in", {
+      method: "POST",
+      body: {
+        provider: "GOOGLE", providerSubject: `browser-e2e-${runId}`,
+        email: `browser-e2e-${runId}@example.test`, displayName: "Browser E2E Creator",
+      },
+    });
+    check(creatorSignIn.response.ok, "Creator A social E2E sign-in failed.");
+    const creatorIdentity = {
+      id: creatorSignIn.content.user.id,
+      tokens: creatorSignIn.content.tokens,
+    };
+    const userB = await createSocialUser("social-user-b", `Social User B ${runId}`);
+    const userC = await createSocialUser("social-user-c", `Social User C ${runId}`);
+
+    const anonymousSocialContext = await browser.newContext({ locale: "th-TH" });
+    const anonymousSocialPage = await anonymousSocialContext.newPage();
+    await anonymousSocialPage.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" });
+    await anonymousSocialPage.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
+    check(await anonymousSocialPage.getByRole("button", { name: "Like", exact: true }).getAttribute("aria-pressed") === "false",
+      "Anonymous Story Detail leaked private Like state.");
+    check(await anonymousSocialPage.getByRole("button", { name: "Follow", exact: true }).getAttribute("aria-pressed") === "false",
+      "Anonymous Story Detail leaked private Follow state.");
+    const anonymousSocialText = (await anonymousSocialPage.locator("body").innerText()).toLowerCase();
+    check(!anonymousSocialText.includes("liked by") && !anonymousSocialText.includes("followers"),
+      "Anonymous Story Detail exposed a liker or follower identity list.");
+    await anonymousSocialPage.getByRole("button", { name: "Like", exact: true }).click();
+    await anonymousSocialPage.waitForURL("**/login?next=**");
+    await anonymousSocialPage.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" });
+    await anonymousSocialPage.getByRole("button", { name: "Follow", exact: true }).click();
+    await anonymousSocialPage.waitForURL("**/login?next=**");
+
+    const userBContext = await browser.newContext({ locale: "th-TH" });
+    const userBPage = await userBContext.newPage();
+    await setBrowserSession(userBPage, userB.tokens);
+    await userBPage.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" });
+    await userBPage.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
+    const likeResponse = userBPage.waitForResponse((response) =>
+      response.request().method() === "PUT" &&
+      new URL(response.url()).pathname === `/api/v1/stories/${storyId}/like`);
+    await userBPage.getByRole("button", { name: "Like", exact: true }).click();
+    check((await likeResponse).status() === 200, "User B Like UI request was not accepted.");
+    await userBPage.getByRole("button", { name: "Unlike", exact: true }).waitFor();
+    check(storyLikeCount(storyId, userB.id) === 1 && storyLikeCount(storyId) === 1,
+      "Like UI did not persist exactly one relationship or derived count.");
+    const repeatedLike = await userBPage.evaluate(async (value) => fetch(
+      `http://localhost:5039/api/v1/stories/${value.storyId}/like`,
+      { method: "PUT", headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status),
+    { storyId, token: userB.tokens.accessToken });
+    check(repeatedLike === 200 && storyLikeCount(storyId, userB.id) === 1 && storyLikeCount(storyId) === 1,
+      "Repeated Like was not idempotent.");
+
+    const unlikeResponse = userBPage.waitForResponse((response) =>
+      response.request().method() === "DELETE" &&
+      new URL(response.url()).pathname === `/api/v1/stories/${storyId}/like`);
+    await userBPage.getByRole("button", { name: "Unlike", exact: true }).click();
+    check((await unlikeResponse).status() === 200, "User B Unlike UI request was not accepted.");
+    await userBPage.getByRole("button", { name: "Like", exact: true }).waitFor();
+    const repeatedUnlike = await userBPage.evaluate(async (value) => fetch(
+      `http://localhost:5039/api/v1/stories/${value.storyId}/like`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status),
+    { storyId, token: userB.tokens.accessToken });
+    check(repeatedUnlike === 200 && storyLikeCount(storyId, userB.id) === 0 && storyLikeCount(storyId) === 0,
+      "Repeated Unlike was not idempotent.");
+
+    const socialTabA = await userBContext.newPage();
+    const socialTabB = await userBContext.newPage();
+    await Promise.all([
+      socialTabA.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" }),
+      socialTabB.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" }),
+    ]);
+    await Promise.all([
+      socialTabA.getByRole("button", { name: "Like", exact: true }).click(),
+      socialTabB.getByRole("button", { name: "Like", exact: true }).click(),
+    ]);
+    await Promise.all([
+      socialTabA.getByRole("button", { name: "Unlike", exact: true }).waitFor(),
+      socialTabB.getByRole("button", { name: "Unlike", exact: true }).waitFor(),
+    ]);
+    check(storyLikeCount(storyId, userB.id) === 1 && storyLikeCount(storyId) === 1,
+      "Concurrent browser Likes created duplicate relationships or count drift.");
+
+    const followResponse = socialTabA.waitForResponse((response) =>
+      response.request().method() === "PUT" &&
+      new URL(response.url()).pathname === `/api/v1/creators/by-slug/${creatorSlug}/follow`);
+    await socialTabA.getByRole("button", { name: "Follow", exact: true }).click();
+    check((await followResponse).status() === 200, "User B Follow UI request was not accepted.");
+    await socialTabA.getByRole("button", { name: "Following", exact: true }).waitFor();
+    check(creatorFollowCount(creatorSlug, userB.id) === 1 && creatorFollowCount(creatorSlug) === 1,
+      "Follow UI did not persist exactly one relationship or derived count.");
+    const repeatedFollow = await socialTabA.evaluate(async (value) => fetch(
+      `http://localhost:5039/api/v1/creators/by-slug/${value.creatorSlug}/follow`,
+      { method: "PUT", headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status),
+    { creatorSlug, token: userB.tokens.accessToken });
+    check(repeatedFollow === 200 && creatorFollowCount(creatorSlug, userB.id) === 1 &&
+      creatorFollowCount(creatorSlug) === 1, "Repeated Follow was not idempotent.");
+
+    const unfollowResponse = socialTabA.waitForResponse((response) =>
+      response.request().method() === "DELETE" &&
+      new URL(response.url()).pathname === `/api/v1/creators/by-slug/${creatorSlug}/follow`);
+    await socialTabA.getByRole("button", { name: "Following", exact: true }).click();
+    check((await unfollowResponse).status() === 200, "User B Unfollow UI request was not accepted.");
+    await socialTabA.getByRole("button", { name: "Follow", exact: true }).waitFor();
+    const repeatedUnfollow = await socialTabA.evaluate(async (value) => fetch(
+      `http://localhost:5039/api/v1/creators/by-slug/${value.creatorSlug}/follow`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status),
+    { creatorSlug, token: userB.tokens.accessToken });
+    check(repeatedUnfollow === 200 && creatorFollowCount(creatorSlug, userB.id) === 0 &&
+      creatorFollowCount(creatorSlug) === 0, "Repeated Unfollow was not idempotent.");
+
+    await Promise.all([
+      socialTabA.getByRole("button", { name: "Follow", exact: true }).click(),
+      socialTabB.getByRole("button", { name: "Follow", exact: true }).click(),
+    ]);
+    await Promise.all([
+      socialTabA.getByRole("button", { name: "Following", exact: true }).waitFor(),
+      socialTabB.getByRole("button", { name: "Following", exact: true }).waitFor(),
+    ]);
+    check(creatorFollowCount(creatorSlug, userB.id) === 1 && creatorFollowCount(creatorSlug) === 1,
+      "Concurrent browser Follows created duplicate relationships or count drift.");
+
+    const creatorContext = await browser.newContext({ locale: "th-TH" });
+    const creatorPage = await creatorContext.newPage();
+    await setBrowserSession(creatorPage, creatorIdentity.tokens);
+    await creatorPage.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" });
+    const selfFollowResponse = creatorPage.waitForResponse((response) =>
+      response.request().method() === "PUT" &&
+      new URL(response.url()).pathname === `/api/v1/creators/by-slug/${creatorSlug}/follow`);
+    await creatorPage.getByRole("button", { name: "Follow", exact: true }).click();
+    check((await selfFollowResponse).status() === 400,
+      "Creator self-follow did not return the documented validation rejection.");
+    check(creatorFollowCount(creatorSlug, creatorIdentity.id) === 0,
+      "Creator self-follow created a relationship row.");
+
+    const assignedModerator = await apiCall(`/api/v1/dev/auth/users/${creatorIdentity.id}/role`, {
+      method: "PUT", body: { role: "MODERATOR" },
+    });
+    check(assignedModerator.response.status === 204, "Social E2E moderator role assignment failed.");
+    const moderatorSignIn = await apiCall("/api/v1/dev/auth/social-sign-in", {
+      method: "POST",
+      body: {
+        provider: "GOOGLE", providerSubject: `browser-e2e-${runId}`,
+        email: `browser-e2e-${runId}@example.test`, displayName: "Browser E2E Creator",
+      },
+    });
+    check(moderatorSignIn.response.ok, "Social E2E moderator token refresh failed.");
+    const moderatorToken = moderatorSignIn.content.tokens.accessToken;
+
+    const hideStory = await apiCall("/api/v1/moderation/actions/hide", {
+      token: moderatorToken, method: "POST",
+      body: { targetType: "STORY", targetId: storyId, reportId: null,
+        reasonCode: "OTHER", note: "Social Browser E2E Story retention" },
+    });
+    check(hideStory.response.ok, "Social E2E Story hide failed.");
+    await anonymousSocialPage.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" });
+    check(await anonymousSocialPage.getByText(`Browser E2E Story ${runId}`, { exact: true }).count() === 0,
+      "Hidden Story remained available through the public browser route.");
+    const hiddenStory = await apiCall(`/api/v1/stories/${creatorSlug}/browser-e2e-story-${runId}`);
+    check(hiddenStory.response.status === 404 && storyLikeCount(storyId, userB.id) === 1,
+      "Hidden Story leaked publicly or destroyed its retained Like relationship.");
+    const restoreStory = await apiCall("/api/v1/moderation/actions/restore", {
+      token: moderatorToken, method: "POST",
+      body: { targetType: "STORY", targetId: storyId, reportId: null,
+        reasonCode: "OTHER", note: "Social Browser E2E Story restore" },
+    });
+    check(restoreStory.response.ok, "Social E2E Story restore failed.");
+
+    const hideCreator = await apiCall("/api/v1/moderation/actions/hide", {
+      token: moderatorToken, method: "POST",
+      body: { targetType: "USER", targetId: creatorIdentity.id, reportId: null,
+        reasonCode: "OTHER", note: "Social Browser E2E Creator retention" },
+    });
+    check(hideCreator.response.ok, "Social E2E Creator hide failed.");
+    check(creatorFollowCount(creatorSlug, userB.id) === 1,
+      "Hidden Creator moderation destroyed the retained Follow relationship.");
+    const authoredStoryWhileCreatorHidden = await apiCall(
+      `/api/v1/stories/${creatorSlug}/browser-e2e-story-${runId}`);
+    check(authoredStoryWhileCreatorHidden.response.ok,
+      "Creator-profile moderation incorrectly concealed an independently visible Story.");
+    const restoreCreator = await apiCall("/api/v1/moderation/actions/restore", {
+      token: moderatorToken, method: "POST",
+      body: { targetType: "USER", targetId: creatorIdentity.id, reportId: null,
+        reasonCode: "OTHER", note: "Social Browser E2E Creator restore" },
+    });
+    check(restoreCreator.response.ok, "Social E2E Creator restore failed.");
+    await userBPage.reload({ waitUntil: "networkidle" });
+    await userBPage.getByRole("button", { name: "Unlike", exact: true }).waitFor();
+    await userBPage.getByRole("button", { name: "Following", exact: true }).waitFor();
+
+    await userBPage.evaluate(() => {
+      localStorage.setItem("novelverse_access_token", "invalid-e2e-access");
+      localStorage.setItem("novelverse_refresh_token", "invalid-e2e-refresh");
+    });
+    const invalidatedMutation = userBPage.waitForResponse((response) =>
+      response.request().method() === "DELETE" &&
+      new URL(response.url()).pathname === `/api/v1/stories/${storyId}/like`);
+    await userBPage.getByRole("button", { name: "Unlike", exact: true }).click();
+    check((await invalidatedMutation).status() === 401,
+      "Invalidated Social session did not return 401.");
+    await userBPage.getByRole("button", { name: "Like", exact: true }).waitFor();
+    await userBPage.getByRole("button", { name: "Follow", exact: true }).waitFor();
+    check(await userBPage.getByRole("button", { name: "Like", exact: true }).getAttribute("aria-pressed") === "false" &&
+      await userBPage.getByRole("button", { name: "Follow", exact: true }).getAttribute("aria-pressed") === "false",
+    "401 session invalidation did not clear User B viewer-specific social state.");
+    await userBPage.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
+    check(storyLikeCount(storyId, userB.id) === 1 && creatorFollowCount(creatorSlug, userB.id) === 1,
+      "Rejected 401 mutation changed User B persisted Social relationships.");
+    await anonymousSocialPage.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" });
+    check(await anonymousSocialPage.getByRole("button", { name: "Like", exact: true }).getAttribute("aria-pressed") === "false" &&
+      await anonymousSocialPage.getByRole("button", { name: "Follow", exact: true }).getAttribute("aria-pressed") === "false",
+    "Logout/anonymous viewer leaked User B social state.");
+    const userCContext = await browser.newContext({ locale: "th-TH" });
+    const userCPage = await userCContext.newPage();
+    await setBrowserSession(userCPage, userC.tokens);
+    await userCPage.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" });
+    check(await userCPage.getByRole("button", { name: "Like", exact: true }).getAttribute("aria-pressed") === "false" &&
+      await userCPage.getByRole("button", { name: "Follow", exact: true }).getAttribute("aria-pressed") === "false",
+    "User C received User B private social state.");
+    const userCDeletes = await userCPage.evaluate(async (value) => Promise.all([
+      fetch(`http://localhost:5039/api/v1/stories/${value.storyId}/like`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status),
+      fetch(`http://localhost:5039/api/v1/creators/by-slug/${value.creatorSlug}/follow`,
+        { method: "DELETE", headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status),
+    ]), { storyId, creatorSlug, token: userC.tokens.accessToken });
+    check(userCDeletes.every((status) => status === 200) &&
+      storyLikeCount(storyId, userB.id) === 1 && creatorFollowCount(creatorSlug, userB.id) === 1,
+    "User C removed User B social relationships.");
+
+    const socialFailureStatuses = await userCPage.evaluate(async (value) => Promise.all(
+      Array.from({ length: 24 }, () => fetch(
+        `http://localhost:5039/api/v1/stories/${value.storyId}/like`,
+        { method: "PUT", headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status)),
+    ), { storyId, token: userC.tokens.accessToken });
+    check(socialFailureStatuses.includes(429), "Real social mutation failure mechanism did not reach rate limiting.");
+    const stateAfterQuota = await userCPage.evaluate(async (value) => Promise.all([
+      fetch(`http://localhost:5039/api/v1/social/stories/${value.storyId}/like-state`,
+        { headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status),
+      fetch(`http://localhost:5039/api/v1/social/creators/by-slug/${value.creatorSlug}/follow-state`,
+        { headers: { Authorization: `Bearer ${value.token}` } }).then((response) => response.status),
+    ]), { storyId, creatorSlug, token: userC.tokens.accessToken });
+    check(stateAfterQuota.every((status) => status === 200),
+      "Social state GET consumed or remained blocked by the mutation quota.");
+    await userCPage.reload({ waitUntil: "networkidle" });
+    await userCPage.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
+    check(!(await userCPage.locator("body").innerText()).toLowerCase().includes("mock"),
+      "Social API failure replaced Story Detail with mock fallback.");
+    check(!/(popular|trending|recommendation|notification|social feed)/i.test(
+      await userCPage.locator("body").innerText()),
+    "Out-of-scope Popular, Trending, Recommendation, Notification, or Social Feed UI was rendered.");
+    await userCPage.locator('a[href*="/read-novel/"]').click();
+    await userCPage.getByText(testText).waitFor();
+
+    const privacyUnlink = await apiCall("/api/v1/dev/social/privacy/unlink", {
+      token: userB.tokens.accessToken,
+      method: "DELETE",
+    });
+    check(privacyUnlink.response.ok &&
+      privacyUnlink.content.storyLikes === 1 &&
+      privacyUnlink.content.outgoingFollows === 1,
+    "Development Social privacy boundary did not remove User B relationships.");
+    check(storyLikeCount(storyId, userB.id) === 0 &&
+      creatorFollowCount(creatorSlug, userB.id) === 0 &&
+      storyLikeCount(storyId, userC.id) === 1,
+    "Privacy unlink removed the wrong viewer's relationships or left User B attributable state.");
+    const repeatedPrivacyUnlink = await apiCall("/api/v1/dev/social/privacy/unlink", {
+      token: userB.tokens.accessToken,
+      method: "DELETE",
+    });
+    check(repeatedPrivacyUnlink.response.ok &&
+      repeatedPrivacyUnlink.content.storyLikes === 0 &&
+      repeatedPrivacyUnlink.content.outgoingFollows === 0 &&
+      repeatedPrivacyUnlink.content.incomingFollows === 0,
+    "Repeated Social privacy unlink was not idempotent.");
+
+    await socialTabA.close();
+    await socialTabB.close();
+    await creatorContext.close();
+    await userBContext.close();
+    await userCContext.close();
+    await anonymousSocialContext.close();
+
     const anonymousContext = await browser.newContext({ locale: "th-TH" });
     const anonymousPage = await anonymousContext.newPage();
     const anonymousStarts = [];
@@ -658,6 +1031,18 @@ async function run() {
       engagementIdentitySeparationVerified: true,
       engagementMultiTabArbitrationVerified: true,
       engagementModerationHideRestoreVerified: true,
+      socialAnonymousGatingVerified: true,
+      socialLikeUnlikeUiVerified: true,
+      socialFollowUnfollowUiVerified: true,
+      socialMultiTabUniquenessVerified: true,
+      socialSelfFollowRejected: true,
+      socialPersistedRowsAndCountsVerified: true,
+      socialModerationRetentionVerified: true,
+      socialViewerIsolationVerified: true,
+      socialFailureIsolationVerified: true,
+      socialMutationQuotaReadIsolationVerified: true,
+      socialSessionInvalidationVerified: true,
+      socialPrivacyUnlinkVerified: true,
       draftExcludedFromDiscovery: true,
       mockFallbackDetected: false,
     }, null, 2));

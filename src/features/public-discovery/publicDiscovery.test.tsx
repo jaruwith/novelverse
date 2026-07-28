@@ -10,7 +10,7 @@ vi.mock("@/features/novel-editor/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/novel-editor/api")>();
   return { ...actual, listPublicStories: vi.fn(), listCategories: vi.fn(),
     getPublicStory: vi.fn(), listPublicEpisodes: vi.fn(), hasSession: vi.fn(),
-    listLibrary: vi.fn(), addBookmark: vi.fn(), removeBookmark: vi.fn() };
+    listLibrary: vi.fn(), addBookmark: vi.fn(), removeBookmark: vi.fn(), likeStory: vi.fn(), unlikeStory: vi.fn(), followCreator: vi.fn(), unfollowCreator: vi.fn(), getLikeState: vi.fn(), getFollowState: vi.fn() };
 });
 
 const story: PublicStory = {
@@ -31,6 +31,7 @@ const page = (items = [story]) => ({
 });
 
 beforeEach(() => {
+  localStorage.clear();
   window.history.replaceState(null, "", "/");
   vi.mocked(api.listPublicStories).mockResolvedValue(page());
   vi.mocked(api.listCategories).mockResolvedValue(story.categories);
@@ -42,6 +43,12 @@ beforeEach(() => {
       updatedAt: "2026-07-02T00:00:00Z", wordCount: 120 }],
   });
   vi.mocked(api.hasSession).mockReturnValue(false);
+  vi.mocked(api.getLikeState).mockResolvedValue({ targetId: story.id, isActive: false, updatedAt: "2026-07-01T00:00:00Z" });
+  vi.mocked(api.getFollowState).mockResolvedValue({ targetId: "creator", isActive: false, updatedAt: "2026-07-01T00:00:00Z" });
+  vi.mocked(api.likeStory).mockResolvedValue({ targetId: story.id, isActive: true, updatedAt: "2026-07-01T00:00:00Z" });
+  vi.mocked(api.unlikeStory).mockResolvedValue({ targetId: story.id, isActive: false, updatedAt: "2026-07-01T00:00:00Z" });
+  vi.mocked(api.followCreator).mockResolvedValue({ targetId: "creator", isActive: true, updatedAt: "2026-07-01T00:00:00Z" });
+  vi.mocked(api.unfollowCreator).mockResolvedValue({ targetId: "creator", isActive: false, updatedAt: "2026-07-01T00:00:00Z" });
   vi.mocked(api.listLibrary).mockResolvedValue({
     items: [], page: 1, pageSize: 100, totalItems: 0, totalPages: 0,
     hasPreviousPage: false, hasNextPage: false,
@@ -100,6 +107,161 @@ describe("public discovery Home", () => {
 });
 
 describe("public Story Detail", () => {
+  it("requires sign-in for anonymous social mutations", async () => {
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    expect(await screen.findByRole("button", { name: "Like" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Like" }));
+    expect(api.likeStory).not.toHaveBeenCalled();
+  });
+
+  it("uses server-confirmed Like and Follow state for authenticated users", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    await waitFor(() => expect(api.getLikeState).toHaveBeenCalledWith(story.id));
+    fireEvent.click(screen.getByRole("button", { name: "Like" }));
+    await waitFor(() => expect(api.likeStory).toHaveBeenCalledWith(story.id));
+    expect(await screen.findByRole("button", { name: "Unlike" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Follow" }));
+    await waitFor(() => expect(api.followCreator).toHaveBeenCalledWith(story.creatorSlug));
+    vi.mocked(api.hasSession).mockReturnValue(false);
+  });
+
+  it("renders initial liked and following state from the authenticated viewer", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.getLikeState).mockResolvedValue({ targetId: story.id, isActive: true, updatedAt: "2026-07-01T00:00:00Z" });
+    vi.mocked(api.getFollowState).mockResolvedValue({ targetId: "creator", isActive: true, updatedAt: "2026-07-01T00:00:00Z" });
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    expect(await screen.findByRole("button", { name: "Unlike" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: "Following" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("clears private state on 401 while preserving public Story content", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.getLikeState).mockResolvedValue({ targetId: story.id, isActive: true, updatedAt: "2026-07-01T00:00:00Z" });
+    vi.mocked(api.likeStory).mockRejectedValue(new api.ApiError(401));
+    vi.mocked(api.unlikeStory).mockRejectedValue(new api.ApiError(401));
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Unlike" }));
+    expect(await screen.findByText("กรุณาเข้าสู่ระบบเพื่อกดถูกใจ")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: story.title })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Like" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("uses generic not-found rendering when a Like mutation proves Story concealment", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.likeStory).mockRejectedValue(new api.ApiError(404));
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    await waitFor(() => expect(api.getLikeState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Like" }));
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: story.title })).not.toBeInTheDocument();
+  });
+
+  it("refetches authoritative Like state after 409", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.getLikeState)
+      .mockResolvedValueOnce({ targetId: story.id, isActive: false, updatedAt: "2026-07-01T00:00:00Z" })
+      .mockResolvedValueOnce({ targetId: story.id, isActive: true, updatedAt: "2026-07-02T00:00:00Z" });
+    vi.mocked(api.likeStory).mockRejectedValue(new api.ApiError(409));
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    await waitFor(() => expect(api.getLikeState).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Like" }));
+    expect(await screen.findByRole("button", { name: "Unlike" })).toHaveAttribute("aria-pressed", "true");
+    expect(api.getLikeState).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains confirmed Like state after 429 or network failure", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.getLikeState).mockResolvedValue({ targetId: story.id, isActive: true, updatedAt: "2026-07-01T00:00:00Z" });
+    vi.mocked(api.unlikeStory)
+      .mockRejectedValueOnce(new api.ApiError(429))
+      .mockRejectedValueOnce(new api.ApiError(0));
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Unlike" }));
+    await waitFor(() => expect(api.unlikeStory).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Unlike" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Unlike" }));
+    await waitFor(() => expect(api.unlikeStory).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("heading", { name: story.title })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unlike" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("reconciles Follow 404, 409, and 429 without replacing Story content", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.followCreator).mockRejectedValueOnce(new api.ApiError(409));
+    vi.mocked(api.getFollowState)
+      .mockResolvedValueOnce({ targetId: "creator", isActive: false, updatedAt: "2026-07-01T00:00:00Z" })
+      .mockResolvedValueOnce({ targetId: "creator", isActive: true, updatedAt: "2026-07-02T00:00:00Z" });
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    await waitFor(() => expect(api.getFollowState).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Follow" }));
+    expect(await screen.findByRole("button", { name: "Following" })).toHaveAttribute("aria-pressed", "true");
+
+    vi.mocked(api.unfollowCreator).mockRejectedValueOnce(new api.ApiError(429));
+    fireEvent.click(screen.getByRole("button", { name: "Following" }));
+    await waitFor(() => expect(api.unfollowCreator).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Following" })).toBeInTheDocument();
+
+    vi.mocked(api.unfollowCreator).mockRejectedValueOnce(new api.ApiError(404));
+    fireEvent.click(screen.getByRole("button", { name: "Following" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Following" })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: story.title })).toBeInTheDocument();
+  });
+
+  it("conceals self-follow after the documented 400 response", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.followCreator).mockRejectedValue(new api.ApiError(400));
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    await waitFor(() => expect(api.getFollowState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Follow" }));
+    expect(await screen.findByText("ไม่สามารถติดตามโปรไฟล์ผู้สร้างนี้ได้")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Follow" })).not.toBeInTheDocument();
+  });
+
+  it("clears Follow state on 401 and conceals an initially hidden creator profile", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.followCreator).mockRejectedValue(new api.ApiError(401));
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    await waitFor(() => expect(api.getFollowState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Follow" }));
+    expect(await screen.findByText("กรุณาเข้าสู่ระบบเพื่อติดตามผู้สร้าง")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: story.title })).toBeInTheDocument();
+
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.getFollowState).mockRejectedValue(new api.ApiError(404));
+    window.dispatchEvent(new Event("novelverse:session-changed"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Follow" })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: story.title })).toBeInTheDocument();
+  });
+
+  it("clears and refetches viewer state across logout and login transitions", async () => {
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    vi.mocked(api.getLikeState)
+      .mockResolvedValueOnce({ targetId: story.id, isActive: true, updatedAt: "2026-07-01T00:00:00Z" })
+      .mockResolvedValueOnce({ targetId: story.id, isActive: false, updatedAt: "2026-07-02T00:00:00Z" });
+    vi.mocked(api.getFollowState)
+      .mockResolvedValueOnce({ targetId: "creator", isActive: true, updatedAt: "2026-07-01T00:00:00Z" })
+      .mockResolvedValueOnce({ targetId: "creator", isActive: false, updatedAt: "2026-07-02T00:00:00Z" });
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    expect(await screen.findByRole("button", { name: "Unlike" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Following" })).toBeInTheDocument();
+
+    vi.mocked(api.hasSession).mockReturnValue(false);
+    api.clearSession();
+    expect(await screen.findByRole("button", { name: "Like" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Follow" })).toHaveAttribute("aria-pressed", "false");
+
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    api.storeTokens({
+      accessToken: "test-access",
+      accessTokenExpiresAt: "2026-07-28T01:00:00Z",
+      refreshToken: "test-refresh",
+      refreshTokenExpiresAt: "2026-08-28T00:00:00Z",
+    });
+    await waitFor(() => expect(api.getLikeState).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "Like" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Follow" })).toHaveAttribute("aria-pressed", "false");
+  });
   it("renders public metadata and published episode navigation", async () => {
     render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
     expect(await screen.findByRole("heading", { name: "เรื่องจริงจาก API" })).toBeInTheDocument();
