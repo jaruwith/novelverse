@@ -327,3 +327,19 @@ The frontend must not recompute or blend server ranks.
 6. Is exact creator slug filtering exposed through creator links only, or a
    user-entered control?
 7. What no-results guidance is preferred for Thai Phase 1 limitations?
+
+## 14. Epic 10B implemented integration
+
+Home treats the URL query string as the source of truth for `q`, pagination,
+StoryType, active category slug, normalized textual tag, creator slug, language,
+content rating, and sort. Reload, back navigation, and shared links restore the
+same request. A submitted non-empty query exposes and defaults to `RELEVANCE`;
+clearing it removes that option. Latest and Updated remain available without a
+query.
+
+The client sends one discovery request per state transition and consumes
+additive nullable latest-Episode metadata from the response, so Story cards
+create no Episode N+1 requests. API errors use the existing Thai-first mapping
+with retry, and empty results are distinct from failures. Anonymous discovery
+has no session requirement or mock fallback; Library and Continue Reading keep
+their private authenticated contracts.
