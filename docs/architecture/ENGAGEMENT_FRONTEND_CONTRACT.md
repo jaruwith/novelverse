@@ -344,3 +344,25 @@ Risks requiring implementation review:
 - sessionStorage availability/private browsing;
 - consent requirements by deployment region;
 - avoiding timer/listener leaks across Next.js route transitions.
+
+## Epic 12B implementation clarification
+
+The controller uses an in-memory stable lifecycle key, per-request UUIDs,
+credentialed requests, a 30-second interval, 60-second interaction idle
+detection, visibility suppression, best-effort end, and a three-failure ceiling.
+It stores no anonymous identity.
+
+Story detail starts after successful render. NOVEL and COMIC start owning-Episode
+sessions and send persisted block/page IDs with coverage evidence. The current
+youtube-nocookie iframe has no verified Player API channel, so VIDEO starts a
+session but supplies no playback/completion evidence. Tracking failure remains
+silent and independent from reading-progress persistence.
+
+Review evidence uses fake timers for lifecycle-start deduplication, stable
+client-session keys, unique request keys, monotonic sequences, visibility/idle
+suppression, 404/409 terminal handling, 429 backoff, bounded network failure,
+and best-effort end. The real browser flow uses separate anonymous and
+authenticated contexts, verifies that neither identity can claim the other's
+session, exercises two-page server-authoritative tab arbitration, and proves
+moderation hide stops ingestion until restore. No viewer identity is placed in
+JavaScript storage or rendered in public UI.
