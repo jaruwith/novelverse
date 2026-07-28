@@ -9,7 +9,8 @@ import type { PublicStory } from "@/features/novel-editor/types";
 vi.mock("@/features/novel-editor/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/novel-editor/api")>();
   return { ...actual, listPublicStories: vi.fn(), listCategories: vi.fn(),
-    getPublicStory: vi.fn(), listPublicEpisodes: vi.fn() };
+    getPublicStory: vi.fn(), listPublicEpisodes: vi.fn(), hasSession: vi.fn(),
+    listLibrary: vi.fn(), addBookmark: vi.fn(), removeBookmark: vi.fn() };
 });
 
 const story: PublicStory = {
@@ -37,6 +38,17 @@ beforeEach(() => {
       sortOrder: 1, visibility: "PUBLIC", synopsis: "เริ่มต้น", publishedAt: "2026-07-02T00:00:00Z",
       updatedAt: "2026-07-02T00:00:00Z", wordCount: 120 }],
   });
+  vi.mocked(api.hasSession).mockReturnValue(false);
+  vi.mocked(api.listLibrary).mockResolvedValue({
+    items: [], page: 1, pageSize: 100, totalItems: 0, totalPages: 0,
+    hasPreviousPage: false, hasNextPage: false,
+  });
+  vi.mocked(api.addBookmark).mockResolvedValue({
+    storyId: story.id, title: story.title, storySlug: story.slug, creatorSlug: story.creatorSlug,
+    creatorDisplayName: story.creatorDisplayName, synopsis: story.synopsis, storyType: story.storyType,
+    coverUrl: null, categories: story.categories, bookmarkedAt: "2026-07-26T00:00:00Z",
+  });
+  vi.mocked(api.removeBookmark).mockResolvedValue(undefined);
 });
 
 describe("public discovery Home", () => {
@@ -79,6 +91,20 @@ describe("public Story Detail", () => {
     vi.mocked(api.listPublicEpisodes).mockResolvedValue({ ...page([]), pageSize: 100, items: [] });
     render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
     expect(await screen.findByText("เรื่องนี้ยังไม่มีตอนที่เผยแพร่")).toBeInTheDocument();
+  });
+
+  it("redirects anonymous bookmark intent to login and toggles for an authenticated reader", async () => {
+    const { unmount } = render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    expect(await screen.findByRole("link", { name: "บันทึกเข้าคลัง" }))
+      .toHaveAttribute("href", "/login?next=%2Fstories%2Fcreator-one%2Freal-api-story");
+    unmount();
+    vi.mocked(api.hasSession).mockReturnValue(true);
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกเข้าคลัง" }));
+    await waitFor(() => expect(api.addBookmark).toHaveBeenCalledWith("story-1"));
+    expect(screen.getByRole("button", { name: "นำออกจากคลัง" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "นำออกจากคลัง" }));
+    await waitFor(() => expect(api.removeBookmark).toHaveBeenCalledWith("story-1"));
   });
 });
 

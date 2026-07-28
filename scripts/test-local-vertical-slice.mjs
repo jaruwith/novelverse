@@ -178,6 +178,32 @@ async function run() {
       { waitUntil: "networkidle" });
     await page.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]').waitFor();
 
+    // Authenticated reader state: bookmark Stories and retain one Episode-level resume per Story.
+    await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "บันทึกเข้าคลัง" }).click();
+    await page.getByRole("button", { name: "นำออกจากคลัง" }).waitFor();
+    await page.locator('a[href*="/read-novel/"]').click();
+    await page.getByText(testText).waitFor();
+
+    await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/${comicStorySlug}`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "บันทึกเข้าคลัง" }).click();
+    await page.getByRole("button", { name: "นำออกจากคลัง" }).waitFor();
+
+    await page.goto(`${baseUrl}/library`, { waitUntil: "networkidle" });
+    await page.getByRole("link", { name: `Browser E2E Story ${runId}`, exact: true }).waitFor();
+    await page.getByRole("link", { name: comicStoryTitle, exact: true }).waitFor();
+    check(await page.getByRole("link", { name: "อ่านต่อ" }).count() >= 3,
+      "Library did not expose resume links for all StoryTypes.");
+    const comicBookmark = page.getByRole("heading", { name: comicStoryTitle }).locator("..");
+    await comicBookmark.getByRole("button", { name: "ลบออกจากคลัง" }).click();
+    await page.reload({ waitUntil: "networkidle" });
+    check(await page.getByRole("button", { name: "ลบออกจากคลัง" }).count() === 1,
+      "Removed Comic bookmark returned after reload.");
+    await page.getByRole("link", { name: `Browser E2E Story ${runId}`, exact: true }).waitFor();
+
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "อ่านต่อ" }).waitFor();
+
     const draftStoryTitle = `Browser E2E Draft ${runId}`;
     await page.goto(`${baseUrl}/creator/stories`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "＋ สร้างนิยาย" }).click();
@@ -242,6 +268,8 @@ async function run() {
       publicDiscoveryVerified: true,
       storyDetailVerified: true,
       publicReaderRoutingVerified: true,
+      readerLibraryVerified: true,
+      readingProgressVerified: true,
       draftExcludedFromDiscovery: true,
       mockFallbackDetected: false,
     }, null, 2));
