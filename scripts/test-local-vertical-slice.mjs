@@ -51,6 +51,47 @@ function createPng() {
   ]);
 }
 
+async function createSearchFixture(page, fixture) {
+  return page.evaluate(async ({ title, tag, suffix }) => {
+    const apiBase = "http://localhost:5039";
+    const token = localStorage.getItem("novelverse_access_token");
+    if (!token) throw new Error("Authenticated fixture setup requires a local development session.");
+    const call = async (path, init = {}) => {
+      const response = await fetch(`${apiBase}${path}`, {
+        ...init,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...init.headers },
+      });
+      if (!response.ok) throw new Error(`Fixture API ${init.method ?? "GET"} ${path} returned ${response.status}.`);
+      return response.status === 204 ? null : response.json();
+    };
+    const categories = await call("/api/v1/categories");
+    const category = categories.find((item) => item.isActive);
+    if (!category) throw new Error("Fixture setup requires an active category.");
+    const story = await call("/api/v1/creator/stories", {
+      method: "POST",
+      body: JSON.stringify({
+        title, slug: null, synopsis: `Thai literal search fixture ${suffix}`, languageCode: "th",
+        visibility: "PUBLIC", contentRating: "GENERAL", coverMediaAssetId: null,
+        categoryIds: [category.id], tags: [tag], storyType: "NOVEL", readingMode: "VERTICAL",
+      }),
+    });
+    const episode = await call(`/api/v1/creator/stories/${story.id}/episodes`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: `ตอนทดสอบ ${suffix}`, episodeNumber: 1, sortOrder: 1,
+        slug: null, synopsis: null, visibility: "PUBLIC",
+      }),
+    });
+    await call(`/api/v1/creator/stories/${story.id}/episodes/${episode.id}/content`, {
+      method: "PUT",
+      body: JSON.stringify({ blocks: [{ type: "TEXT", textContent: `เนื้อหาทดสอบ ${suffix}`, mediaAssetId: null }] }),
+    });
+    await call(`/api/v1/creator/stories/${story.id}/publish`, { method: "POST" });
+    await call(`/api/v1/creator/stories/${story.id}/episodes/${episode.id}/publish`, { method: "POST" });
+    return { storyId: story.id, title, tag, categorySlug: category.slug };
+  }, fixture);
+}
+
 async function run() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ locale: "th-TH" });
@@ -178,6 +219,11 @@ async function run() {
       { waitUntil: "networkidle" });
     await page.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]').waitFor();
 
+    const thaiStoryTitle = `นักรบแห่งเงา ${runId}`;
+    await createSearchFixture(page, {
+      title: thaiStoryTitle, tag: "  Fantasy-Thai  ", suffix: runId,
+    });
+
     // Authenticated reader state: bookmark Stories and retain one Episode-level resume per Story.
     await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "บันทึกเข้าคลัง" }).click();
@@ -222,6 +268,59 @@ async function run() {
     await page.getByText(videoStoryTitle, { exact: true }).waitFor();
     check(await page.getByText(draftStoryTitle, { exact: true }).count() === 0,
       "Draft Story was discoverable on public Home.");
+
+    const thaiQuery = "แห่งเงา";
+    await page.getByLabel("คำค้นหา").fill(thaiQuery);
+    await page.getByLabel("ค้นหาเรื่อง").getByRole("button", { name: "ค้นหา", exact: true }).click();
+    await page.getByText(thaiStoryTitle, { exact: true }).waitFor();
+    check(await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).count() === 0,
+      "Thai character-sequence search retained an unrelated Story.");
+    check(new URL(page.url()).searchParams.get("q") === thaiQuery,
+      "Thai character-sequence query was not stored in the URL.");
+    check(!(await page.locator("body").innerText()).toLowerCase().includes("mock"),
+      "Thai search exposed mock fallback content.");
+    await page.reload({ waitUntil: "networkidle" });
+    check(await page.getByLabel("คำค้นหา").inputValue() === thaiQuery,
+      "Thai query was not restored after reload.");
+    await page.getByText(thaiStoryTitle, { exact: true }).waitFor();
+    await page.getByRole("button", { name: "ล้างตัวกรอง" }).click();
+
+    const tagQuery = "  fAnTaSy-ThAi  ";
+    await page.getByLabel("แท็ก").fill(tagQuery);
+    await page.getByLabel("ภาษา").fill("th");
+    await page.getByText(thaiStoryTitle, { exact: true }).waitFor();
+    check(await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).count() === 0,
+      "Normalized textual tag filter retained a Story without the tag.");
+    check(new URL(page.url()).searchParams.get("tag") === tagQuery,
+      "Tag filter did not use the canonical textual tag query parameter.");
+    check(new URL(page.url()).searchParams.get("languageCode") === "th",
+      "Tag filter did not combine with the language filter.");
+    await page.reload({ waitUntil: "networkidle" });
+    check(await page.getByLabel("แท็ก").inputValue() === tagQuery,
+      "Normalized textual tag filter was not restored after reload.");
+    await page.getByText(thaiStoryTitle, { exact: true }).waitFor();
+    await page.getByRole("button", { name: "ล้างตัวกรอง" }).click();
+
+    await page.getByLabel("คำค้นหา").fill(`browser   e2e story ${runId}`);
+    await page.getByLabel("ค้นหาเรื่อง").getByRole("button", { name: "ค้นหา", exact: true }).click();
+    await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
+    check(new URL(page.url()).searchParams.get("sort") === "RELEVANCE",
+      "Search did not use URL-backed RELEVANCE ordering.");
+    await page.getByText(`ตอนล่าสุด: Browser E2E Episode ${runId}`, { exact: false }).waitFor();
+    await page.reload({ waitUntil: "networkidle" });
+    check((await page.getByLabel("คำค้นหา").inputValue()).includes(`browser e2e story ${runId}`),
+      "Search URL state was not restored after reload.");
+    await page.getByRole("button", { name: "ล้างตัวกรอง" }).click();
+    check(new URL(page.url()).search === "", "Clear filters did not canonicalize the Home URL.");
+
+    await page.goto(`${baseUrl}/?creatorSlug=browser-e2e-${runId}&languageCode=th&contentRating=GENERAL&sort=UPDATED`,
+      { waitUntil: "networkidle" });
+    await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
+    await page.getByText(comicStoryTitle, { exact: true }).waitFor();
+    await page.getByText(videoStoryTitle, { exact: true }).waitFor();
+    check(await page.getByText(draftStoryTitle, { exact: true }).count() === 0,
+      "Combined filters exposed an ineligible Story.");
+    await page.getByLabel("เรียงตาม").selectOption("LATEST");
 
     await page.getByRole("button", { name: "การ์ตูน" }).click();
     await page.getByText(comicStoryTitle, { exact: true }).waitFor();

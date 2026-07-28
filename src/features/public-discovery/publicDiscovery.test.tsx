@@ -19,6 +19,8 @@ const story: PublicStory = {
   languageCode: "th", visibility: "PUBLIC", contentRating: "GENERAL",
   coverMediaAssetId: null, coverUrl: null, publishedAt: "2026-07-01T00:00:00Z",
   updatedAt: "2026-07-02T00:00:00Z", publishedEpisodeCount: 1,
+  latestPublishedEpisodeId: "episode-1", latestPublishedEpisodeSlug: "episode-one",
+  latestPublishedEpisodeTitle: "ตอนแรก", latestPublishedEpisodeAt: "2026-07-02T00:00:00Z",
   categories: [{ id: "cat-1", code: "FANTASY", name: "แฟนตาซี", slug: "fantasy", isActive: true, sortOrder: 1 }],
   tags: [{ id: "tag-1", name: "ผจญภัย", slug: "adventure" }],
   storyType: "NOVEL", readingMode: "VERTICAL",
@@ -29,6 +31,7 @@ const page = (items = [story]) => ({
 });
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/");
   vi.mocked(api.listPublicStories).mockResolvedValue(page());
   vi.mocked(api.listCategories).mockResolvedValue(story.categories);
   vi.mocked(api.getPublicStory).mockResolvedValue(story);
@@ -54,7 +57,7 @@ beforeEach(() => {
 describe("public discovery Home", () => {
   it("loads real discovery cards and applies type and category filters", async () => {
     render(<PublicHome />);
-    expect(screen.getByRole("status")).toHaveTextContent("กำลังโหลด");
+    expect(screen.getByRole("status")).toHaveTextContent("กำลังค้นหา");
     expect(await screen.findByText("เรื่องจริงจาก API")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "เรื่องจริงจาก API" }))
       .toHaveAttribute("href", "/stories/creator-one/real-api-story");
@@ -72,8 +75,27 @@ describe("public discovery Home", () => {
     render(<PublicHome />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ลองอีกครั้ง" }));
-    expect(await screen.findByText("ยังไม่มีเรื่องที่เผยแพร่ตรงกับตัวกรองนี้")).toBeInTheDocument();
+    expect(await screen.findByText("ไม่พบเรื่องที่ตรงกับการค้นหาและตัวกรอง")).toBeInTheDocument();
     expect(api.listPublicStories).toHaveBeenCalledTimes(2);
+  });
+
+  it("restores URL state, submits normalized Thai search, and clears filters", async () => {
+    window.history.replaceState(null, "", "/?q=แมว%20%20ไทย&storyType=COMIC&sort=RELEVANCE");
+    render(<PublicHome />);
+    expect(screen.getByLabelText("คำค้นหา")).toHaveValue("แมว  ไทย");
+    await waitFor(() => expect(api.listPublicStories).toHaveBeenCalledWith(expect.objectContaining({
+      q: "แมว  ไทย", storyType: "COMIC", sort: "RELEVANCE",
+    })));
+    fireEvent.change(screen.getByLabelText("คำค้นหา"), { target: { value: "  แมว   ไทย  " } });
+    fireEvent.submit(screen.getByRole("form", { name: "ค้นหาเรื่อง" }));
+    await waitFor(() => expect(api.listPublicStories).toHaveBeenLastCalledWith(expect.objectContaining({
+      q: "แมว ไทย", sort: "RELEVANCE",
+    })));
+    expect(window.location.search).toContain("q=%E0%B9%81%E0%B8%A1%E0%B8%A7+%E0%B9%84%E0%B8%97%E0%B8%A2");
+    expect(screen.getByLabelText("เรียงตาม")).toHaveTextContent("ความเกี่ยวข้อง");
+    fireEvent.click(screen.getByRole("button", { name: "ล้างตัวกรอง" }));
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(screen.getByLabelText("เรียงตาม")).not.toHaveTextContent("ความเกี่ยวข้อง");
   });
 });
 

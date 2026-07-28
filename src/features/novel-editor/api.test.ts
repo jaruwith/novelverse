@@ -46,10 +46,12 @@ describe("verified NovelVerseApi client", () => {
       page: 2, pageSize: 12, totalItems: 13, totalPages: 2, hasPreviousPage: true, hasNextPage: false,
     }));
     const result = await listPublicStories({
-      page: 2, pageSize: 12, storyType: "COMIC", categorySlug: "fantasy", sort: "UPDATED",
+      q: "แมว ไทย", page: 2, pageSize: 12, storyType: "COMIC", categorySlug: "fantasy",
+      tag: "magic", creatorSlug: "creator-one", languageCode: "th",
+      contentRating: "TEEN", sort: "RELEVANCE",
     });
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe("http://localhost:5039/api/v1/stories?page=2&pageSize=12&sort=UPDATED&storyType=COMIC&categorySlug=fantasy");
+    expect(url).toBe("http://localhost:5039/api/v1/stories?page=2&pageSize=12&sort=RELEVANCE&q=%E0%B9%81%E0%B8%A1%E0%B8%A7+%E0%B9%84%E0%B8%97%E0%B8%A2&storyType=COMIC&categorySlug=fantasy&tag=magic&creatorSlug=creator-one&languageCode=th&contentRating=TEEN");
     expect(new Headers(init?.headers).has("Authorization")).toBe(false);
     expect(result.items[0].coverUrl).toBe("http://localhost:5039/api/v1/media-assets/m1/content");
   });
