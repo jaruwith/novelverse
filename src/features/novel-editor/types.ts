@@ -96,6 +96,10 @@ export type PublicStory = {
   publishedAt: string;
   updatedAt: string;
   publishedEpisodeCount: number;
+  latestPublishedEpisodeId: string | null;
+  latestPublishedEpisodeSlug: string | null;
+  latestPublishedEpisodeTitle: string | null;
+  latestPublishedEpisodeAt: string | null;
   categories: Category[];
   tags: { id: string; name: string; slug: string }[];
   storyType: StoryType;

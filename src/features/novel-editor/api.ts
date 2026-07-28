@@ -131,15 +131,22 @@ export const listStories = (page = 1, pageSize = 20) =>
   request<PagedResponse<StorySummary>>(`/api/v1/creator/stories?page=${page}&pageSize=${pageSize}`);
 export const listCategories = () => request<Category[]>("/api/v1/categories");
 export function listPublicStories(input: {
-  page?: number; pageSize?: number; storyType?: StoryType; categorySlug?: string; sort?: "LATEST" | "UPDATED";
+  q?: string; page?: number; pageSize?: number; storyType?: StoryType; categorySlug?: string;
+  tag?: string; creatorSlug?: string; languageCode?: string; contentRating?: string;
+  sort?: "LATEST" | "UPDATED" | "RELEVANCE";
 } = {}) {
   const query = new URLSearchParams({
     page: String(input.page ?? 1),
     pageSize: String(input.pageSize ?? 12),
-    sort: input.sort ?? "LATEST",
+    sort: input.sort ?? (input.q ? "RELEVANCE" : "LATEST"),
   });
+  if (input.q) query.set("q", input.q);
   if (input.storyType) query.set("storyType", input.storyType);
   if (input.categorySlug) query.set("categorySlug", input.categorySlug);
+  if (input.tag) query.set("tag", input.tag);
+  if (input.creatorSlug) query.set("creatorSlug", input.creatorSlug);
+  if (input.languageCode) query.set("languageCode", input.languageCode);
+  if (input.contentRating) query.set("contentRating", input.contentRating);
   return request<PagedResponse<PublicStory>>(`/api/v1/stories?${query}`).then((page) => ({
     ...page,
     items: page.items.map((story) => ({ ...story, coverUrl: absoluteApiUrl(story.coverUrl) })),
