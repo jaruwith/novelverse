@@ -63,6 +63,18 @@ describe("reader library", () => {
     expect(replace).toHaveBeenCalledWith("/login?next=%2Flibrary");
   });
 
+  it("keeps a hidden bookmark unavailable without leaking moderation details or a reader link", async () => {
+    vi.mocked(api.listLibrary).mockResolvedValue(page([{
+      ...bookmark, isAvailable: false, unavailableReason: "CONTENT_UNAVAILABLE",
+    }]));
+    vi.mocked(api.listReadingProgress).mockResolvedValue(page([]));
+    render(<LibraryPage />);
+    expect(await screen.findByText("เนื้อหานี้ไม่พร้อมให้บริการ")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: bookmark.title })).not.toBeInTheDocument();
+    expect(screen.queryByText(/moderator|SPAM|COPYRIGHT/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /อ่านต่อ/ })).not.toBeInTheDocument();
+  });
+
   it("shows personal Home progress only for authenticated sessions", async () => {
     const { unmount } = render(<ContinueReading />);
     expect(await screen.findByText("เรื่องสำหรับอ่านต่อ")).toBeInTheDocument();
