@@ -96,6 +96,17 @@ async function run() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ locale: "th-TH" });
   const page = await context.newPage();
+  const engagementStarts = [];
+  page.on("response", async (response) => {
+    if (response.request().method() === "POST" &&
+        /\/api\/v1\/engagement\/sessions$/.test(new URL(response.url()).pathname) &&
+        response.ok()) {
+      const body = await response.json().catch(() => null);
+      const requestBody = response.request().postDataJSON();
+      engagementStarts.push(body ? { ...body, clientSessionKey: requestBody.clientSessionKey,
+        targetId: requestBody.targetId } : null);
+    }
+  });
   page.on("requestfailed", (request) => {
     console.error(`Request failed: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? "unknown"})`);
   });
@@ -121,12 +132,14 @@ async function run() {
     await page.getByRole("button", { name: "สร้าง NOVEL ฉบับร่าง" }).click();
     await page.waitForURL(/\/creator\/stories\/[^/]+$/);
     const storyUrl = page.url();
+    const storyId = new URL(storyUrl).pathname.split("/").at(-1);
 
     await page.getByRole("button", { name: "＋ สร้างตอน" }).click();
     await page.getByLabel("ชื่อตอน").fill(`Browser E2E Episode ${runId}`);
     await page.getByRole("button", { name: "สร้างตอนฉบับร่าง" }).click();
     await page.waitForURL(/\/episodes\/[^/]+\/edit$/);
     const editorUrl = page.url();
+    const episodeId = new URL(editorUrl).pathname.split("/").at(-2);
     await page.getByLabel("เลือกรูปภาพ").setInputFiles(imagePath);
     await page.getByTestId("block-IMAGE").waitFor();
 
@@ -341,16 +354,279 @@ async function run() {
     await page.waitForURL(`**/read-novel/browser-e2e-${runId}/browser-e2e-story-${runId}/browser-e2e-episode-${runId}`);
     await page.getByText(testText).waitFor();
     await page.getByTestId("novel-content-renderer").locator("img").waitFor();
+    const novelSession = engagementStarts.filter((item) => item?.targetType === "EPISODE").at(-1);
+    check(novelSession, "NOVEL engagement session response was not observed.");
+    const novelEngagement = await page.evaluate(async ({ runId }) => {
+      const api = "http://localhost:5039"; const token = localStorage.getItem("novelverse_access_token");
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const content = await fetch(`${api}/api/v1/stories/browser-e2e-${runId}/browser-e2e-story-${runId}/episodes/browser-e2e-episode-${runId}/content`).then((r) => r.json());
+      const clientSessionKey = crypto.randomUUID();
+      const session = await fetch(`${api}/api/v1/engagement/sessions`, { method: "POST", headers,
+        credentials: "include", body: JSON.stringify({ targetType: "EPISODE", targetId: content.episodeId,
+          clientSessionKey, idempotencyKey: crypto.randomUUID() }) }).then((r) => r.json());
+      await fetch(`${api}/api/v1/dev/engagement/sessions/${session.sessionId}/advance`,
+        { method: "POST", headers, body: JSON.stringify({ seconds: 31 }) });
+      return fetch(`${api}/api/v1/engagement/sessions/${session.sessionId}/activity`, {
+        method: "POST", headers, credentials: "include", body: JSON.stringify({
+          idempotencyKey: crypto.randomUUID(), sequence: 1, clientSessionKey,
+          evidenceType: "COMPLETION", reportedActiveSeconds: 30, progressPercent: 100,
+          reachedContentId: content.blocks.at(-1).id, reachedPosition: content.blocks.length,
+          totalItems: content.blocks.length, finalContentReached: true,
+        }),
+      }).then((r) => r.json());
+    }, { runId });
+    check(novelEngagement.qualified && novelEngagement.completed,
+      "NOVEL valid block evidence did not qualify and complete.");
 
     await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/${comicStorySlug}`, { waitUntil: "networkidle" });
     await page.getByText(comicEpisodeTitle, { exact: false }).waitFor();
     await page.getByRole("link", { name: "เปิดอ่าน" }).click();
     await page.getByTestId("comic-reader").locator("img").waitFor();
+    check(engagementStarts.filter((item) => item?.targetType === "EPISODE").at(-1),
+      "COMIC engagement session response was not observed.");
+    const comicEngagement = await page.evaluate(async ({ runId, storySlug, episodeSlug }) => {
+      const api = "http://localhost:5039"; const token = localStorage.getItem("novelverse_access_token");
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const content = await fetch(`${api}/api/v1/stories/browser-e2e-${runId}/${storySlug}/episodes/${episodeSlug}/comic-pages`).then((r) => r.json());
+      const clientSessionKey = crypto.randomUUID();
+      const session = await fetch(`${api}/api/v1/engagement/sessions`, { method: "POST", headers,
+        credentials: "include", body: JSON.stringify({ targetType: "EPISODE", targetId: content.episodeId,
+          clientSessionKey, idempotencyKey: crypto.randomUUID() }) }).then((r) => r.json());
+      await fetch(`${api}/api/v1/dev/engagement/sessions/${session.sessionId}/advance`,
+        { method: "POST", headers, body: JSON.stringify({ seconds: 31 }) });
+      return fetch(`${api}/api/v1/engagement/sessions/${session.sessionId}/activity`, {
+        method: "POST", headers, credentials: "include", body: JSON.stringify({
+          idempotencyKey: crypto.randomUUID(), sequence: 1, clientSessionKey,
+          evidenceType: "COMPLETION", reportedActiveSeconds: 30, progressPercent: 100,
+          reachedContentId: content.pages.at(-1).id, reachedPosition: content.pages.length,
+          totalItems: content.pages.length, finalContentReached: true,
+        }),
+      }).then((r) => r.json());
+    }, { runId, storySlug: comicStorySlug, episodeSlug: comicEpisodeSlug });
+    check(comicEngagement.qualified && comicEngagement.completed,
+      "COMIC valid page evidence did not qualify and complete.");
 
     await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-video-${runId}`, { waitUntil: "networkidle" });
     await page.getByText(videoEpisodeTitle, { exact: false }).waitFor();
     await page.getByRole("link", { name: "เปิดอ่าน" }).click();
     await page.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]').waitFor();
+    const videoSession = engagementStarts.filter((item) => item?.targetType === "EPISODE").at(-1);
+    const videoEngagement = await page.evaluate(async ({ episodeId }) => {
+      const api = "http://localhost:5039"; const token = localStorage.getItem("novelverse_access_token");
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const clientSessionKey = crypto.randomUUID();
+      const session = await fetch(`${api}/api/v1/engagement/sessions`, { method: "POST", headers,
+        credentials: "include", body: JSON.stringify({ targetType: "EPISODE", targetId: episodeId,
+          clientSessionKey, idempotencyKey: crypto.randomUUID() }) }).then((r) => r.json());
+      await fetch(`${api}/api/v1/dev/engagement/sessions/${session.sessionId}/advance`,
+        { method: "POST", headers, body: JSON.stringify({ seconds: 31 }) });
+      return fetch(`${api}/api/v1/engagement/sessions/${session.sessionId}/activity`, {
+        method: "POST", headers, credentials: "include", body: JSON.stringify({
+          idempotencyKey: crypto.randomUUID(), sequence: 1, clientSessionKey,
+          evidenceType: "COMPLETION", reportedActiveSeconds: 30, progressPercent: 100,
+          playbackSeconds: 200, durationSeconds: 200, providerEnded: true,
+        }),
+      }).then((r) => r.json());
+    }, { episodeId: videoSession.targetId });
+    check(!videoEngagement.qualified && !videoEngagement.completed,
+      "VIDEO client-only playback evidence falsely qualified/completed.");
+
+    await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`, { waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "networkidle" });
+    check(engagementStarts.some((item) => item?.targetType === "STORY"),
+      "Story-detail engagement session was not accepted.");
+    check(engagementStarts.filter((item) => item?.targetType === "EPISODE").length >= 3,
+      "NOVEL, COMIC, and VIDEO did not each start owning-Episode engagement sessions.");
+    check(engagementStarts.some((item) => item?.targetType === "STORY" && item.countedNewView === false),
+      "Story refresh did not exercise server-side 30-minute view deduplication.");
+    check(engagementStarts.filter((item) => item?.targetType === "EPISODE")
+      .every((item) => item.qualified === false && item.completed === false),
+      "A reader session falsely reported qualification/completion without accepted evidence.");
+    check((await page.getByText(/views|ยอดดู|ครั้งที่อ่าน/i).count()) === 0,
+      "Public engagement count UI was unexpectedly rendered.");
+
+    const anonymousContext = await browser.newContext({ locale: "th-TH" });
+    const anonymousPage = await anonymousContext.newPage();
+    const anonymousStarts = [];
+    anonymousPage.on("response", async (response) => {
+      if (response.request().method() === "POST" &&
+          /\/api\/v1\/engagement\/sessions$/.test(new URL(response.url()).pathname) &&
+          response.ok()) {
+        const body = await response.json().catch(() => null);
+        const requestBody = response.request().postDataJSON();
+        if (body) anonymousStarts.push({ ...body, clientSessionKey: requestBody.clientSessionKey });
+      }
+    });
+    await anonymousPage.goto(
+      `${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`,
+      { waitUntil: "networkidle" });
+    await anonymousPage.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
+    await anonymousPage.getByRole("link", { name: "เปิดอ่าน" }).click();
+    await anonymousPage.getByText(testText).waitFor();
+    const anonymousStorySession = anonymousStarts.find((item) => item.targetType === "STORY");
+    const anonymousEpisodeSession = anonymousStarts.find((item) => item.targetType === "EPISODE");
+    check(anonymousStorySession && anonymousEpisodeSession,
+      "Anonymous Story and Episode sessions were not both accepted.");
+    const anonymousVerification = await anonymousPage.evaluate(async (sessionId) =>
+      fetch(`http://localhost:5039/api/v1/dev/engagement/sessions/${sessionId}/verification`,
+        { credentials: "include" }).then((response) => response.json()), anonymousStorySession.sessionId);
+    check(anonymousVerification.viewerKind === "ANONYMOUS" &&
+      !anonymousVerification.userLinked && anonymousVerification.anonymousLinked,
+    "Anonymous verification exposed an invalid identity shape.");
+
+    const authenticatedSeparation = await page.evaluate(async ({ storyId, anonymousSession, providerSubject, email }) => {
+      const api = "http://localhost:5039";
+      let token = localStorage.getItem("novelverse_access_token");
+      if (!token) {
+        const signed = await fetch(`${api}/api/v1/dev/auth/social-sign-in`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: "GOOGLE", providerSubject, email,
+            displayName: "Browser E2E Creator" }),
+        }).then((response) => response.json());
+        token = signed.tokens.accessToken;
+        localStorage.setItem("novelverse_access_token", token);
+      }
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const session = await fetch(`${api}/api/v1/engagement/sessions`, {
+        method: "POST", credentials: "include", headers,
+        body: JSON.stringify({ targetType: "STORY", targetId: storyId,
+          clientSessionKey: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+      }).then((response) => response.json());
+      const verification = await fetch(
+        `${api}/api/v1/dev/engagement/sessions/${session.sessionId}/verification`).then((r) => r.json());
+      const wrongOwner = await fetch(
+        `${api}/api/v1/engagement/sessions/${anonymousSession.sessionId}/activity`, {
+          method: "POST", credentials: "include", headers,
+          body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), sequence: 1,
+            clientSessionKey: anonymousSession.clientSessionKey, evidenceType: "HEARTBEAT",
+            reportedActiveSeconds: 0, progressPercent: 0 }),
+        });
+      return { verification, wrongOwnerStatus: wrongOwner.status };
+    }, { storyId, anonymousSession: anonymousEpisodeSession,
+      providerSubject: `browser-e2e-${runId}`, email: `browser-e2e-${runId}@example.test` });
+    check(authenticatedSeparation.verification.viewerKind === "AUTHENTICATED" &&
+      authenticatedSeparation.verification.userLinked &&
+      !authenticatedSeparation.verification.anonymousLinked,
+    "Authenticated verification exposed an invalid identity shape.");
+    check(authenticatedSeparation.wrongOwnerStatus === 404,
+      "Authenticated identity mutated an earlier anonymous session.");
+
+    const tabA = await context.newPage();
+    const tabB = await context.newPage();
+    await Promise.all([
+      tabA.goto(baseUrl, { waitUntil: "domcontentloaded" }),
+      tabB.goto(baseUrl, { waitUntil: "domcontentloaded" }),
+    ]);
+    const createTabActivity = async (tab) => tab.evaluate(async ({ episodeId, runId }) => {
+      const api = "http://localhost:5039";
+      const token = localStorage.getItem("novelverse_access_token");
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const content = await fetch(
+        `${api}/api/v1/stories/browser-e2e-${runId}/browser-e2e-story-${runId}/episodes/browser-e2e-episode-${runId}/content`,
+        { headers }).then((r) => r.json());
+      const clientSessionKey = crypto.randomUUID();
+      const session = await fetch(`${api}/api/v1/engagement/sessions`, {
+        method: "POST", credentials: "include", headers,
+        body: JSON.stringify({ targetType: "EPISODE", targetId: episodeId,
+          clientSessionKey, idempotencyKey: crypto.randomUUID() }),
+      }).then((r) => r.json());
+      return { api, headers, content, clientSessionKey, session };
+    }, { episodeId, runId });
+    const tabSessionA = await createTabActivity(tabA);
+    const tabSessionB = await createTabActivity(tabB);
+    const submitTabActivity = (tab, value) => tab.evaluate(async ({ value }) => {
+      await fetch(`${value.api}/api/v1/dev/engagement/sessions/${value.session.sessionId}/advance`, {
+        method: "POST", headers: value.headers, body: JSON.stringify({ seconds: 31 }),
+      });
+      return fetch(`${value.api}/api/v1/engagement/sessions/${value.session.sessionId}/activity`, {
+        method: "POST", credentials: "include", headers: value.headers,
+        body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), sequence: 1,
+          clientSessionKey: value.clientSessionKey, evidenceType: "COMPLETION",
+          reportedActiveSeconds: 30, progressPercent: 100,
+          reachedContentId: value.content.blocks.at(-1).id,
+          reachedPosition: value.content.blocks.length, totalItems: value.content.blocks.length,
+          finalContentReached: true }),
+      }).then((r) => r.json());
+    }, { value });
+    const [oldTabActivity, newTabActivity] = await Promise.all([
+      submitTabActivity(tabA, tabSessionA), submitTabActivity(tabB, tabSessionB),
+    ]);
+    check(oldTabActivity.acceptedActiveSeconds === 0 &&
+      oldTabActivity.suppressionReason === "STALE_TAB",
+    "Older overlapping browser session was not suppressed.");
+    check(newTabActivity.acceptedActiveSeconds === 30 &&
+      newTabActivity.qualified && newTabActivity.completed,
+    "Newest overlapping browser session was not authoritative.");
+    await tabA.close(); await tabB.close();
+
+    const moderationIngestion = await page.evaluate(async ({ episodeId, providerSubject, email }) => {
+      const api = "http://localhost:5039";
+      let token = localStorage.getItem("novelverse_access_token");
+      let headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const me = await fetch(`${api}/api/v1/users/me`, { headers }).then((r) => r.json());
+      await fetch(`${api}/api/v1/dev/auth/users/${me.id}/role`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "MODERATOR" }),
+      });
+      const signed = await fetch(`${api}/api/v1/dev/auth/social-sign-in`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "GOOGLE", providerSubject, email,
+          displayName: "Browser E2E Creator" }),
+      }).then((r) => r.json());
+      token = signed.tokens.accessToken;
+      headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      localStorage.setItem("novelverse_access_token", token);
+      const clientSessionKey = crypto.randomUUID();
+      const session = await fetch(`${api}/api/v1/engagement/sessions`, {
+        method: "POST", credentials: "include", headers,
+        body: JSON.stringify({ targetType: "EPISODE", targetId: episodeId,
+          clientSessionKey, idempotencyKey: crypto.randomUUID() }),
+      }).then((r) => r.json());
+      const before = await fetch(
+        `${api}/api/v1/dev/engagement/sessions/${session.sessionId}/verification`).then((r) => r.json());
+      const hidden = await fetch(`${api}/api/v1/moderation/actions/hide`, {
+        method: "POST", headers, body: JSON.stringify({
+          targetType: "EPISODE", targetId: episodeId, reportId: null,
+          reasonCode: "OTHER", note: "E2E concealment verification",
+        }),
+      });
+      const rejectedActivity = await fetch(
+        `${api}/api/v1/engagement/sessions/${session.sessionId}/activity`, {
+          method: "POST", credentials: "include", headers,
+          body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), sequence: 1,
+            clientSessionKey, evidenceType: "HEARTBEAT", reportedActiveSeconds: 0,
+            progressPercent: 0 }),
+        });
+      const hiddenStart = await fetch(`${api}/api/v1/engagement/sessions`, {
+        method: "POST", credentials: "include", headers,
+        body: JSON.stringify({ targetType: "EPISODE", targetId: episodeId,
+          clientSessionKey: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+      });
+      const after = await fetch(
+        `${api}/api/v1/dev/engagement/sessions/${session.sessionId}/verification`).then((r) => r.json());
+      const restored = await fetch(`${api}/api/v1/moderation/actions/restore`, {
+        method: "POST", headers, body: JSON.stringify({
+          targetType: "EPISODE", targetId: episodeId, reportId: null,
+          reasonCode: "OTHER", note: "E2E restoration verification",
+        }),
+      });
+      const restoredStart = await fetch(`${api}/api/v1/engagement/sessions`, {
+        method: "POST", credentials: "include", headers,
+        body: JSON.stringify({ targetType: "EPISODE", targetId: episodeId,
+          clientSessionKey: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() }),
+      });
+      return { hidden: hidden.status, rejectedActivity: rejectedActivity.status,
+        hiddenStart: hiddenStart.status, factsBefore: before.factCount, factsAfter: after.factCount,
+        restored: restored.status, restoredStart: restoredStart.status };
+    }, { episodeId, providerSubject: `browser-e2e-${runId}`,
+      email: `browser-e2e-${runId}@example.test` });
+    check(moderationIngestion.hidden === 200 && moderationIngestion.rejectedActivity === 404 &&
+      moderationIngestion.hiddenStart === 404 &&
+      moderationIngestion.factsBefore === moderationIngestion.factsAfter,
+    "Hidden Episode accepted engagement or leaked a non-generic response.");
+    check(moderationIngestion.restored === 200 && moderationIngestion.restoredStart === 200,
+      "Restored Episode did not accept a new engagement session.");
+    await anonymousContext.close();
 
     console.log(JSON.stringify({
       result: "PASS",
@@ -369,6 +645,14 @@ async function run() {
       publicReaderRoutingVerified: true,
       readerLibraryVerified: true,
       readingProgressVerified: true,
+      engagementSessionStartsVerified: true,
+      engagementStoryDeduplicationVerified: true,
+      engagementVideoNoFalseCompletionVerified: true,
+      engagementNovelQualificationCompletionVerified: true,
+      engagementComicQualificationCompletionVerified: true,
+      engagementIdentitySeparationVerified: true,
+      engagementMultiTabArbitrationVerified: true,
+      engagementModerationHideRestoreVerified: true,
       draftExcludedFromDiscovery: true,
       mockFallbackDetected: false,
     }, null, 2));
