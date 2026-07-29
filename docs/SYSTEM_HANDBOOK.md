@@ -88,7 +88,7 @@ Wireframe ใช้ role state และ `isAdFreeMember` ใน browser เพ�
 | Creator Dashboard | Overview, profile, stories, chapter management, comments, analytics และ settings | Wireframe พร้อม |
 | Admin Dashboard | Users, Stories, Comments, Reports, Categories และ Tags | Wireframe พร้อม |
 | Advertisement | Standard stack, Premium Popup, eligibility, countdown, scroll/focus lock และ ad-free upsell | Wireframe behavior พร้อม |
-| Moderation | Safe report targets, Admin actions, warning-email audit, evidence และ creator strike concept | Architecture พร้อม; backend ยังไม่มี |
+| Moderation | Safe report targets, Admin actions, warning-email audit, evidence, creator strikes และ publishing suspension 7 วัน | Architecture พร้อม; backend ยังไม่มี |
 | Membership | Google/Facebook identities และ time-bound ad-free entitlement | Architecture พร้อม; authentication/backend ยังไม่มี |
 | Search | UI และ mock filtering | มี Wireframe; ranking/index/search backend ยัง Pending |
 | Analytics | Dashboard mock summaries | มี Wireframe; event model, collection และ definitions ยัง Pending |
@@ -117,7 +117,7 @@ flowchart TB
       AUTH[Google and Facebook Authentication]
       BACKEND[Backend and API - Not Yet Defined]
       DB[(PostgreSQL with UUID Keys)]
-      STORAGE[External Object Storage for Media]
+      STORAGE[Cloudflare R2 Object Storage]
       EXT[Email / Social Providers / Other Services]
     end
 
@@ -149,15 +149,15 @@ PostgreSQL เป็น planned engine และ principal entities ใช้ UU
 
 ### Storage
 
-ไฟล์ภาพและ media อยู่ภายนอก relational database; PostgreSQL เก็บ MediaAsset metadata และ object key/URL Storage provider, CDN, upload limits, scanning และ retention ยัง Pending
+ไฟล์ภาพและ media อยู่ใน Cloudflare R2; PostgreSQL เก็บ MediaAsset metadata และ object key/URL ส่วน CDN behavior, upload limits, scanning และ retention ยัง Pending
 
 ### Authentication
 
-MVP ใช้ Google และ Facebook social login เท่านั้น SocialIdentity แยกจาก User เพื่อเชื่อมหลาย provider ต่อหนึ่ง User Account merge/unlink/recovery, session implementation และ security policy ยัง Pending
+MVP ใช้ Google และ Facebook social loginเท่านั้น SocialIdentity แยกจาก User เพื่อเชื่อมหลาย provider ต่อหนึ่ง User การเข้าสู่ระบบสำเร็จครั้งแรกต้องยอมรับ Terms of Service และรับทราบ Privacy Notice ก่อน account activation ส่วน account merge/unlink/recovery, session implementation และ security policy ยัง Pending
 
 ### External Services
 
-Google/Facebook เป็น provider ที่ยืนยันเชิงสถาปัตยกรรม ส่วน object storage, email delivery, CDN, analytics, monitoring และ deployment providers ยังไม่ได้เลือก ไม่มี external advertising service หรือ real payment integration ใน wireframe
+Google/Facebook และ Cloudflare R2 เป็น providers ที่ยืนยันเชิงสถาปัตยกรรม ส่วน email delivery, CDN behavior, analytics, monitoring และ deployment providers ยังไม่ได้เลือก ไม่มี external advertising service หรือ real payment integration ใน wireframe
 
 ## Documentation Map
 
@@ -235,8 +235,8 @@ flowchart TD
 | Database | PostgreSQL | Planned/Confirmed |
 | Primary Keys | UUID สำหรับ principal entities | Planned/Confirmed |
 | Rich Content | Structured document; PostgreSQL JSONB เป็น physical candidate | Planned; schema/version Pending |
-| Storage | External object storage + MediaAsset metadata/object reference | Planned; provider Pending |
-| Authentication | Google/Facebook social login; SocialIdentity แยกจาก User | Planned/Confirmed |
+| Storage | Cloudflare R2 + MediaAsset metadata/object reference | Planned/Confirmed |
+| Authentication | Google/Facebook social login; SocialIdentity แยกจาก User; versioned Terms/Privacy acceptance ก่อน activation | Planned/Confirmed |
 | Email | Warning-email audit concept | Provider/implementation Pending |
 | Deployment | Hosting/CDN/CI/CD/monitoring ยังไม่ได้กำหนด | Pending |
 | Development Tools | ESLint 9, eslint-config-next 16.2.10, Playwright 1.61.1, npm scripts | Implemented |
@@ -267,15 +267,18 @@ Handbook ไม่สร้างมาตรฐานใหม่ ข้อป�
 | Premium Popup | แสดงสูงสุดหนึ่ง, ปิดหลัง 5 วินาที, modal focus/scroll lock และกลับต้น ad section หลังปิด | [Advertisement](business/02_ADVERTISEMENT.md) |
 | Revenue | NovelVerse มีรายได้จาก advertisements และ ad-free membership | [Monetization](business/06_MONETIZATION.md) |
 | Creator Support | Creator รับเงินสนับสนุน 100% โดยตรง; ไม่มี NovelVerse donation transaction/percentage deduction | [Creator](business/04_CREATOR.md) |
+| Support Privacy | Public display เป็น opt-in; bank/PromptPay encrypted at rest และ masked; QR อยู่ Cloudflare R2 | [Monetization](business/06_MONETIZATION.md) |
+| Legal Acceptance | เก็บ document version/time/User/source สำหรับ login, first publication และ public support enablement | [Membership](business/01_MEMBERSHIP.md) |
 | Creator Identity | Member ทุกคนเป็น Creator ได้; profile เดียว; creator slug unique ทั้งระบบ | [Creator](business/04_CREATOR.md) |
 | Public Story URL | `/@creator-slug/story-slug`; story slug unique ภายใน Creator; chapter slug unique ภายใน Story | [Database Design](database/03_DATABASE_DESIGN.md) |
 | Chapter Ordering | ใช้ `display_order` อิสระจาก title และ displayed chapter number | [Domain Model](database/01_DOMAIN_MODEL.md) |
 | Content Model | Novel ใช้ structured rich content; Comic มี ordered ComicPage records | [Conceptual ER](database/02_ENTITY_RELATIONSHIP.md) |
-| Media | binary files อยู่นอก PostgreSQL; MediaAsset เก็บ metadata/object key/URL | [Database Design](database/03_DATABASE_DESIGN.md) |
+| Media | binary filesอยู่ Cloudflare R2; MediaAsset เก็บ metadata/object key/URL | [Database Design](database/03_DATABASE_DESIGN.md) |
 | Database | PostgreSQL และ UUID primary keys สำหรับ principal entities | [Database Design](database/03_DATABASE_DESIGN.md) |
 | Delete vs Archive | Creator delete ใช้ soft delete; Archive เป็น publication state แยก | [Domain Model](database/01_DOMAIN_MODEL.md) |
 | Safe Reporting | Report target ใช้ typed relationships ที่มี referential integrity สำหรับ User/Story/Chapter/Comment | [Conceptual ER](database/02_ENTITY_RELATIONSHIP.md) |
-| Strike Qualification | Report ไม่ใช่ strike; strike เกิดเมื่อ Admin ยืนยัน violation และส่ง warning emailแล้ว | [Moderation](business/05_MODERATION.md) |
+| Strike Qualification | Report ไม่ใช่ strike; ต้องยืนยัน violation, ซ่อน affected Story/Chapter และส่ง warningที่มี reason/rule reference | [Moderation](business/05_MODERATION.md) |
+| Publishing Suspension | active strike ลำดับที่ 3 ระงับเฉพาะ create/publish 7 วัน; reader/account/ผลงานอื่นไม่เปลี่ยน และ content restorationยัง manual | [Moderation](business/05_MODERATION.md) |
 | Moderation Audit | เก็บ actor, time, reason, evidence, warning email และ resulting content state | [Moderation](business/05_MODERATION.md) |
 
 ## Future Roadmap
@@ -399,7 +402,9 @@ Roadmap นี้สรุปลำดับจากเอกสารเดิ
 | MediaAsset | metadata/object reference ของไฟล์ที่เก็บภายนอก PostgreSQL |
 | ComicPage | หน้าภาพที่มีลำดับภายใน Comic Chapter |
 | Moderation Action | บันทึกการตัดสินใจของ Admin พร้อม actor, time, reason, evidence และผลลัพธ์ |
-| Creator Strike | strike ที่นับหลัง Admin ยืนยัน violation และส่ง warning emailแล้วเท่านั้น |
+| Creator Strike | confirmed content-policy violation หลัง Admin ซ่อน affected content และส่ง warning emailที่ครบถ้วน; ไม่รวม security incident |
+| Publishing Suspension | การระงับสิทธิ์สร้าง/เผยแพร่ของ Creator แยกจาก account suspension; Strike 3 ทำให้เกิด 7 วันใน MVP |
+| Legal Acceptance | หลักฐาน immutable ว่า User ยอมรับ document version ใด เมื่อใด และจาก interaction ใด |
 | Display Order | ลำดับที่แก้ไขได้และไม่ผูกกับชื่อ/เลขตอนที่แสดง |
 | Slug | business identifier ที่อ่านได้สำหรับ public URL; ไม่ใช่ UUID primary key |
 | Soft Delete | ทำเครื่องหมายว่าลบโดยยังรักษาระเบียนเพื่ออ้างอิง/กู้คืน; ไม่เท่ากับ Archive |
@@ -431,4 +436,5 @@ Roadmap นี้สรุปลำดับจากเอกสารเดิ
 
 | Revision | Date | Owner | Change |
 |---|---|---|---|
+| 1.1 | 2026-07-19 | Lead PostgreSQL Database Architect | สะท้อน legal consent, support encryption/R2, publishing transitions และ seven-day publishing suspension |
 | 1.0 | 2026-07-19 | Chief Software Architect — NovelVerse | สร้าง official master handbook เชื่อม product, business, wireframe, database และ visual documentation |

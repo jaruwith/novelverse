@@ -1,17 +1,35 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## NovelVerse platform foundation
+
+The real API-backed creator application is available under `/creator/stories`
+and supports NOVEL, COMIC, and VIDEO Stories. NOVEL provides structured content
+and image upload, COMIC provides ordered media pages, and VIDEO stores supported
+YouTube references. Minimal Preview/readers verify every format; visual polish
+is intentionally deferred.
+
+Configure `NEXT_PUBLIC_API_BASE_URL` when the backend is not served from the
+same origin. See
+[`docs/development/SPRINT_FRONTEND_NOVEL_EDITOR_FOUNDATION.md`](docs/development/SPRINT_FRONTEND_NOVEL_EDITOR_FOUNDATION.md)
+for routes, API assumptions, validation, architecture, and limitations.
+Media upload integration is documented in
+[`docs/development/EPIC_06_MEDIA_INTEGRATION.md`](docs/development/EPIC_06_MEDIA_INTEGRATION.md).
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e:local
+```
+
 ## Getting Started
 
-First, run the development server:
+Start PostgreSQL, apply backend EF migrations, and start NovelVerseApi at
+`http://localhost:5039`. Copy `.env.example` to the ignored `.env.local`, then:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

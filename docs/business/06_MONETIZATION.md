@@ -22,6 +22,7 @@
 | MON-008 | CreatorSupportProfile/Method รองรับ bank, PromptPay, QR image และ external links โดยแสดงบน Creator Profile และท้ายทุก Chapter | confirmed Product Owner decision |
 | MON-009 | เงินสนับสนุนไปยัง Creator โดยตรง; NovelVerse ไม่ประมวลผลและไม่หักเปอร์เซ็นต์ | confirmed Product Owner decision |
 | MON-010 | รายได้ NovelVerse มาจาก advertisements และ ad-free membership | confirmed Product Owner decision |
+| MON-011 | public support เป็น opt-in; bank/PromptPay เข้ารหัส at rest และ mask ใน Admin/log; QR ใช้ Cloudflare R2 โดยไม่เก็บ binary ใน PostgreSQL | confirmed Product Owner decision |
 
 # User Flow
 
@@ -45,7 +46,7 @@
 - ⚠ Pending Product Owner Decision — business model, currency, pricing, tax และ invoice
 - ⚠ Pending Product Owner Decision — Ad-free pricing, renewal, cancellation, refund, grace period และ payment provider
 - ⚠ Pending Product Owner Decision — advertiser packages, Premium Popup pricing และ campaign billing
-- ⚠ Pending Product Owner Decision — validation, privacy, masking และ security ของ bank/PromptPay details
+- ⚠ Pending Product Owner Decision — key management/rotation, retention และ validation details ของ bank/PromptPay
 - ⚠ Pending Product Owner Decision — sponsored content disclosure, metrics และ reporting obligations
 - ⚠ Pending Product Owner Decision — payment provider, fraud, chargeback และ compliance
 
@@ -67,3 +68,4 @@ Coin-per-chapter เป็น Future และต้องไม่กระท�
 |---|---|---|
 | 1.0 | 19 กรกฎาคม 2569 | สร้าง monetization baseline โดยจำกัดเฉพาะหลักฐานใน wireframe |
 | 1.1 | 19 กรกฎาคม 2569 | ยืนยันแหล่งรายได้ NovelVerse, entitlement และ direct creator support |
+| 1.2 | 19 กรกฎาคม 2569 | ยืนยัน opt-in, encryption/masking และ Cloudflare R2 สำหรับ creator support |

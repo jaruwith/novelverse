@@ -24,6 +24,9 @@
 | MBR-010 | role และ ad-free flag อยู่ใน React memory เท่านั้นและไม่ persist | `RoleProvider.tsx`, system design |
 | MBR-011 | MVP authentication ใช้ Google และ Facebook social login เท่านั้น | confirmed architecture decision |
 | MBR-012 | SocialIdentity แยกจาก User และ User หนึ่งรายเชื่อมหลาย provider ได้ | confirmed architecture decision |
+| MBR-013 | social login สำเร็จครั้งแรกต้องยอมรับ Terms of Service และรับทราบ Privacy Notice ก่อนเปิดใช้งานบัญชี | confirmed Product Owner decision |
+| MBR-014 | การยอมรับเอกสารกฎหมายต้องเก็บ document version, acceptance timestamp, User และ acceptance source | confirmed Product Owner decision |
+| MBR-015 | Creator publishing suspension แยกจาก user account status และไม่ระงับ reader access | confirmed Product Owner decision |
 
 # User Flow
 
@@ -71,3 +74,4 @@
 |---|---|---|
 | 1.0 | 19 กรกฎาคม 2569 | สร้าง baseline จาก interactive wireframe ที่ review แล้ว |
 | 1.1 | 19 กรกฎาคม 2569 | ยืนยัน Google/Facebook social identities และ MembershipEntitlement เป็น source of truth |
+| 1.2 | 19 กรกฎาคม 2569 | ยืนยัน legal acceptance ก่อน activation และแยก publishing suspension จากสถานะบัญชี |
