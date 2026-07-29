@@ -13,6 +13,7 @@ const ACCESS_KEY = "novelverse_access_token";
 const REFRESH_KEY = "novelverse_refresh_token";
 const ACCESS_EXPIRY_KEY = "novelverse_access_token_expires_at";
 const REFRESH_EXPIRY_KEY = "novelverse_refresh_token_expires_at";
+const SESSION_CHANGED_EVENT = "novelverse:session-changed";
 
 const absoluteApiUrl = (url: string | null) => url ? new URL(url, API_BASE).toString() : null;
 
@@ -28,16 +29,30 @@ export function storeTokens(tokens: TokenResponse) {
   localStorage.setItem(REFRESH_KEY, tokens.refreshToken);
   localStorage.setItem(ACCESS_EXPIRY_KEY, tokens.accessTokenExpiresAt);
   localStorage.setItem(REFRESH_EXPIRY_KEY, tokens.refreshTokenExpiresAt);
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
 export function clearSession() {
   if (typeof window === "undefined") return;
   [ACCESS_KEY, REFRESH_KEY, ACCESS_EXPIRY_KEY, REFRESH_EXPIRY_KEY].forEach((key) => localStorage.removeItem(key));
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
 export function hasSession() {
   return typeof window !== "undefined" && Boolean(localStorage.getItem(REFRESH_KEY));
 }
+export function subscribeToSessionChanges(listener: () => void) {
+  if (typeof window === "undefined") return () => undefined;
+  window.addEventListener(SESSION_CHANGED_EVENT, listener);
+  return () => window.removeEventListener(SESSION_CHANGED_EVENT, listener);
+}
+export type SocialState = { targetId: string; isActive: boolean; updatedAt: string };
+export const likeStory = (storyId: string) => request<SocialState>(`/api/v1/stories/${storyId}/like`, { method: "PUT" });
+export const unlikeStory = (storyId: string) => request<SocialState>(`/api/v1/stories/${storyId}/like`, { method: "DELETE" });
+export const getLikeState = (storyId: string) => request<SocialState>(`/api/v1/social/stories/${storyId}/like-state`);
+export const followCreator = (slug: string) => request<SocialState>(`/api/v1/creators/by-slug/${encodeURIComponent(slug)}/follow`, { method: "PUT" });
+export const unfollowCreator = (slug: string) => request<SocialState>(`/api/v1/creators/by-slug/${encodeURIComponent(slug)}/follow`, { method: "DELETE" });
+export const getFollowState = (slug: string) => request<SocialState>(`/api/v1/social/creators/by-slug/${encodeURIComponent(slug)}/follow-state`);
 
 async function parseProblem(response: Response): Promise<ProblemDetails | undefined> {
   try {

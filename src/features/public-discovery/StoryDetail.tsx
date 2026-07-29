@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
-  addBookmark, apiErrorMessage, getPublicStory, hasSession, listLibrary,
-  listPublicEpisodes, removeBookmark,
+  addBookmark, ApiError, apiErrorMessage, getFollowState, getLikeState, getPublicStory, hasSession,
+  listLibrary, likeStory, unlikeStory, followCreator, unfollowCreator, listPublicEpisodes,
+  removeBookmark, subscribeToSessionChanges,
 } from "@/features/novel-editor/api";
 import type { PublicEpisode, PublicStory } from "@/features/novel-editor/types";
 import { resolvePublicEpisodeHref } from "./routes";
@@ -21,6 +22,25 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
   const [bookmarked, setBookmarked] = useState(false);
   const [bookmarkBusy, setBookmarkBusy] = useState(false);
   const [bookmarkError, setBookmarkError] = useState("");
+  const [liked, setLiked] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [followAvailable, setFollowAvailable] = useState(true);
+  const [socialBusy, setSocialBusy] = useState(false);
+  const [socialMessage, setSocialMessage] = useState("");
+  useEffect(() => {
+    const synchronize = () => {
+      const activeSession = hasSession();
+      setAuthenticated(activeSession);
+      if (!activeSession) {
+        setLiked(false);
+        setFollowing(false);
+        setFollowAvailable(true);
+      }
+    };
+    synchronize();
+    return subscribeToSessionChanges(synchronize);
+  }, []);
   useEffect(() => {
     let active = true;
     Promise.all([
@@ -40,11 +60,46 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
     return () => { active = false; };
   }, [creatorSlug, retryKey, storySlug]);
   useEffect(() => {
-    if (!story || !hasSession()) return;
+    if (!story || !authenticated) return;
     listLibrary(1, 100).then((result) => {
       setBookmarked(result.items.some((item) => item.storyId === story.id));
     }).catch(() => undefined);
-  }, [story]);
+  }, [authenticated, story]);
+  useEffect(() => {
+    if (!story) return;
+    if (!authenticated) return;
+    let active = true;
+    void getLikeState(story.id)
+      .then((state) => { if (active) setLiked(state.isActive); })
+      .catch((reason) => {
+        if (!active || !(reason instanceof ApiError)) return;
+        if (reason.status === 401) {
+          setAuthenticated(false);
+          setLiked(false);
+          setFollowing(false);
+        } else if (reason.status === 404) {
+          setError(apiErrorMessage(reason));
+        }
+      });
+    void getFollowState(story.creatorSlug)
+      .then((state) => {
+        if (!active) return;
+        setFollowing(state.isActive);
+        setFollowAvailable(true);
+      })
+      .catch((reason) => {
+        if (!active || !(reason instanceof ApiError)) return;
+        if (reason.status === 401) {
+          setAuthenticated(false);
+          setLiked(false);
+          setFollowing(false);
+        } else if (reason.status === 404) {
+          setFollowing(false);
+          setFollowAvailable(false);
+        }
+      });
+    return () => { active = false; };
+  }, [authenticated, story]);
   useEffect(() => {
     if (!story) return;
     const controller = new EngagementSessionController({ targetType: "STORY", targetId: story.id });
@@ -64,6 +119,62 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
       setBookmarkError(apiErrorMessage(reason));
     } finally {
       setBookmarkBusy(false);
+    }
+  }
+  async function toggleLike() {
+    if (!story) return;
+    if (!authenticated) { window.location.href = `/login?next=${encodeURIComponent(`/stories/${creatorSlug}/${storySlug}`)}`; return; }
+    setSocialBusy(true);
+    setSocialMessage("");
+    try {
+      const result = liked ? await unlikeStory(story.id) : await likeStory(story.id);
+      setLiked(result.isActive);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 401) {
+        setAuthenticated(false);
+        setLiked(false);
+        setFollowing(false);
+        setSocialMessage("กรุณาเข้าสู่ระบบเพื่อกดถูกใจ");
+      } else if (reason instanceof ApiError && reason.status === 404) {
+        setError(apiErrorMessage(reason));
+      } else if (reason instanceof ApiError && reason.status === 409) {
+        try { setLiked((await getLikeState(story.id)).isActive); } catch { /* retain last server-confirmed state */ }
+      } else {
+        setSocialMessage(apiErrorMessage(reason));
+      }
+    } finally {
+      setSocialBusy(false);
+    }
+  }
+  async function toggleFollow() {
+    if (!authenticated) { window.location.href = `/login?next=${encodeURIComponent(`/stories/${creatorSlug}/${storySlug}`)}`; return; }
+    const currentStory = story;
+    if (!currentStory) return;
+    setSocialBusy(true);
+    setSocialMessage("");
+    try {
+      const result = following ? await unfollowCreator(currentStory.creatorSlug) : await followCreator(currentStory.creatorSlug);
+      setFollowing(result.isActive);
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.status === 400) {
+        setFollowing(false);
+        setFollowAvailable(false);
+        setSocialMessage("ไม่สามารถติดตามโปรไฟล์ผู้สร้างนี้ได้");
+      } else if (reason instanceof ApiError && reason.status === 401) {
+        setAuthenticated(false);
+        setLiked(false);
+        setFollowing(false);
+        setSocialMessage("กรุณาเข้าสู่ระบบเพื่อติดตามผู้สร้าง");
+      } else if (reason instanceof ApiError && reason.status === 404) {
+        setFollowing(false);
+        setFollowAvailable(false);
+      } else if (reason instanceof ApiError && reason.status === 409) {
+        try { setFollowing((await getFollowState(currentStory.creatorSlug)).isActive); } catch { /* retain last server-confirmed state */ }
+      } else {
+        setSocialMessage(apiErrorMessage(reason));
+      }
+    } finally {
+      setSocialBusy(false);
     }
   }
 
@@ -87,7 +198,12 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
           <p>โดย {story.creatorDisplayName}</p>
           <p>{story.synopsis || "ยังไม่มีเรื่องย่อ"}</p>
           <p>ระดับเนื้อหา: {story.contentRating} · เผยแพร่ {new Date(story.publishedAt).toLocaleDateString("th-TH")}</p>
-          {hasSession()
+          <div className="tagRow">
+            <button type="button" disabled={socialBusy} aria-pressed={liked} onClick={() => void toggleLike()}>{liked ? "Unlike" : "Like"}</button>
+            {followAvailable && <button type="button" disabled={socialBusy} aria-pressed={following} onClick={() => void toggleFollow()}>{following ? "Following" : "Follow"}</button>}
+          </div>
+          {socialMessage && <p role="status">{socialMessage}</p>}
+          {authenticated
             ? <button type="button" disabled={bookmarkBusy} onClick={() => void toggleBookmark()}>
               {bookmarkBusy ? "กำลังบันทึก…" : bookmarked ? "นำออกจากคลัง" : "บันทึกเข้าคลัง"}
             </button>
