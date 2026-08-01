@@ -61,6 +61,60 @@ async function createSocialUser(prefix, displayName) {
   return { id: signed.content.user.id, slug, identity, tokens: signed.content.tokens };
 }
 
+async function createQualifiedDashboardSession(viewer, episodeId, content, occurredAt) {
+  const clientSessionKey = crypto.randomUUID();
+  const started = await apiCall("/api/v1/engagement/sessions", {
+    token: viewer.tokens.accessToken,
+    method: "POST",
+    body: {
+      targetType: "EPISODE",
+      targetId: episodeId,
+      clientSessionKey,
+      idempotencyKey: crypto.randomUUID(),
+    },
+  });
+  check(started.response.ok,
+    `Dashboard viewer ${viewer.id} session start failed with ${started.response.status}.`);
+  const advanced = await apiCall(
+    `/api/v1/dev/engagement/sessions/${started.content.sessionId}/advance`, {
+      token: viewer.tokens.accessToken,
+      method: "POST",
+      body: { seconds: 31 },
+    });
+  check(advanced.response.ok, `Dashboard viewer ${viewer.id} time advance failed.`);
+  const activity = await apiCall(
+    `/api/v1/engagement/sessions/${started.content.sessionId}/activity`, {
+      token: viewer.tokens.accessToken,
+      method: "POST",
+      body: {
+        idempotencyKey: crypto.randomUUID(),
+        sequence: 1,
+        clientSessionKey,
+        evidenceType: "COMPLETION",
+        reportedActiveSeconds: 30,
+        progressPercent: 100,
+        reachedContentId: content.blocks.at(-1).id,
+        reachedPosition: content.blocks.length,
+        totalItems: content.blocks.length,
+        finalContentReached: true,
+      },
+    });
+  check(activity.response.ok && activity.content.qualified,
+    `Dashboard viewer ${viewer.id} did not produce qualified engagement.`);
+  databaseCommand(
+    `UPDATE engagement_sessions
+     SET qualified_at = ${timestampSqlLiteral(occurredAt)},
+         completed_at = ${timestampSqlLiteral(occurredAt)},
+         updated_at = ${timestampSqlLiteral(occurredAt)}
+     WHERE id = ${sqlLiteral(started.content.sessionId)}::uuid;
+     UPDATE engagement_activity_facts
+     SET server_accepted_at = ${timestampSqlLiteral(occurredAt)},
+         created_at = ${timestampSqlLiteral(occurredAt)}
+     WHERE session_id = ${sqlLiteral(started.content.sessionId)}::uuid;`,
+  );
+  return started.content.sessionId;
+}
+
 async function setBrowserSession(page, tokens) {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await page.evaluate((value) => {
@@ -90,6 +144,20 @@ function storyLikeCount(storyId, userId) {
   return databaseScalar(
     `SELECT count(*) FROM story_likes WHERE "StoryId" = ${sqlLiteral(storyId)}::uuid${actor};`,
   );
+}
+
+function databaseCommand(sql) {
+  execFileSync("docker", [
+    "exec", "novelverse-postgres", "psql",
+    "-U", "novelverse", "-d", "novelverse",
+    "-v", "ON_ERROR_STOP=1", "-c", sql,
+  ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function timestampSqlLiteral(value) {
+  check(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value),
+    "Unsafe timestamp supplied to E2E database fixture.");
+  return `'${value}'::timestamptz`;
 }
 
 function creatorFollowCount(creatorSlug, followerUserId) {
@@ -221,6 +289,28 @@ async function run() {
     await page.waitForURL("**/creator/stories");
     check(!(await page.locator("body").innerText()).includes("mock"), "Creator stories page exposed mock data.");
 
+    await page.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
+    await page.waitForURL("**/creator/dashboard");
+    await page.getByText("No Stories yet", { exact: true }).waitFor();
+    await page.getByText("No Episodes yet", { exact: true }).waitFor();
+    const emptyPerformance = page.locator('section[aria-labelledby="dashboard-performance"]');
+    check(await emptyPerformance.getByText("Insufficient data", { exact: true }).count() === 0,
+      "Zero Dashboard activity was mislabeled as a suppressed small cell.");
+    check(await emptyPerformance.locator("li").filter({ hasText: "Qualified Views" })
+      .getByText("0", { exact: true }).count() === 1,
+    "Empty Creator Dashboard did not render an exact zero qualified-view value.");
+    check(await page.getByRole("link", { name: "Create Story", exact: true }).count() === 1,
+      "Empty Creator Dashboard did not expose its capability-driven Create Story action.");
+    check(!(await page.locator("body").innerText()).toLowerCase().includes("mock"),
+      "Creator Dashboard used a legacy mock fallback.");
+    await page.goto(`${baseUrl}/dashboard/analytics`, { waitUntil: "networkidle" });
+    await page.waitForURL("**/creator/dashboard");
+    await page.reload({ waitUntil: "networkidle" });
+    check(new URL(page.url()).pathname === "/creator/dashboard",
+      "Temporary Analytics compatibility redirect did not remain canonical after reload.");
+    await page.getByRole("link", { name: "Create Story", exact: true }).click();
+    await page.waitForURL("**/creator/stories");
+
     await page.getByRole("button", { name: "＋ สร้างนิยาย" }).click();
     await page.getByLabel("ชื่อเรื่อง").fill(`Browser E2E Story ${runId}`);
     await page.getByRole("button", { name: "สร้าง NOVEL ฉบับร่าง" }).click();
@@ -312,8 +402,12 @@ async function run() {
     await page.waitForURL(/\/episodes\/[^/]+\/edit$/);
     const videoEditorUrl = page.url();
     await page.getByRole("heading", { name: videoEpisodeTitle }).waitFor();
+    await page.waitForLoadState("networkidle");
     await page.getByLabel("Video URL").fill("https://youtu.be/dQw4w9WgXcQ");
-    await page.getByRole("button", { name: "บันทึก", exact: true }).click();
+    const videoSave = page.getByRole("button", { name: "บันทึก", exact: true });
+    await videoSave.waitFor();
+    check(await videoSave.isEnabled(), "VIDEO editor did not enable Save for a valid YouTube URL.");
+    await videoSave.click();
     await page.getByText("Video ID: dQw4w9WgXcQ").waitFor();
     await page.reload({ waitUntil: "networkidle" });
     await page.getByText("Video ID: dQw4w9WgXcQ").waitFor();
@@ -554,8 +648,112 @@ async function run() {
       id: creatorSignIn.content.user.id,
       tokens: creatorSignIn.content.tokens,
     };
+    const dashboardCategories = await apiCall("/api/v1/categories", {
+      token: creatorIdentity.tokens.accessToken,
+    });
+    const dashboardCategory = dashboardCategories.content.find((item) => item.isActive);
+    check(dashboardCategories.response.ok && dashboardCategory,
+      "Dashboard lifecycle E2E fixture requires an active category.");
+    const createDashboardLifecycleStory = async (title, storyType) => {
+      const created = await apiCall("/api/v1/creator/stories", {
+        token: creatorIdentity.tokens.accessToken,
+        method: "POST",
+        body: {
+          title,
+          slug: null,
+          synopsis: `Dashboard lifecycle proof ${runId}`,
+          languageCode: "en",
+          visibility: "UNLISTED",
+          contentRating: "GENERAL",
+          coverMediaAssetId: null,
+          categoryIds: [dashboardCategory.id],
+          tags: [],
+          storyType,
+          readingMode: "VERTICAL",
+        },
+      });
+      check(created.response.ok, `${title} Dashboard lifecycle fixture creation failed.`);
+      return created.content;
+    };
+    const archivedDashboardStory = await createDashboardLifecycleStory(
+      `Dashboard Archived Story ${runId}`, "VIDEO");
+    const deletedDashboardStory = await createDashboardLifecycleStory(
+      `Dashboard Deleted Secret ${runId}`, "NOVEL");
+    databaseCommand(
+      `UPDATE stories
+       SET status = 'Archived', updated_at = now() + interval '2 minutes'
+       WHERE id = ${sqlLiteral(archivedDashboardStory.id)}::uuid;
+       UPDATE stories
+       SET status = 'Deleted', deleted_at = now(), updated_at = now() + interval '3 minutes'
+       WHERE id = ${sqlLiteral(deletedDashboardStory.id)}::uuid;`,
+    );
     const userB = await createSocialUser("social-user-b", `Social User B ${runId}`);
     const userC = await createSocialUser("social-user-c", `Social User C ${runId}`);
+
+    const performanceContent = await apiCall(
+      `/api/v1/stories/${creatorSlug}/browser-e2e-story-${runId}/episodes/browser-e2e-episode-${runId}/content`,
+      { token: userB.tokens.accessToken });
+    check(performanceContent.response.ok && performanceContent.content.blocks.length > 0,
+      "Dashboard suppression E2E fixture could not load the real Episode content.");
+    const performanceSessionKey = crypto.randomUUID();
+    const performanceSession = await apiCall("/api/v1/engagement/sessions", {
+      token: userB.tokens.accessToken,
+      method: "POST",
+      body: {
+        targetType: "EPISODE", targetId: episodeId,
+        clientSessionKey: performanceSessionKey, idempotencyKey: crypto.randomUUID(),
+      },
+    });
+    check(performanceSession.response.ok, "Dashboard suppression E2E session start failed.");
+    const advancedPerformance = await apiCall(
+      `/api/v1/dev/engagement/sessions/${performanceSession.content.sessionId}/advance`, {
+        token: userB.tokens.accessToken, method: "POST", body: { seconds: 31 },
+      });
+    check(advancedPerformance.response.ok, "Dashboard suppression E2E time advance failed.");
+    const performanceActivity = await apiCall(
+      `/api/v1/engagement/sessions/${performanceSession.content.sessionId}/activity`, {
+        token: userB.tokens.accessToken,
+        method: "POST",
+        body: {
+          idempotencyKey: crypto.randomUUID(), sequence: 1,
+          clientSessionKey: performanceSessionKey, evidenceType: "COMPLETION",
+          reportedActiveSeconds: 30, progressPercent: 100,
+          reachedContentId: performanceContent.content.blocks.at(-1).id,
+          reachedPosition: performanceContent.content.blocks.length,
+          totalItems: performanceContent.content.blocks.length,
+          finalContentReached: true,
+        },
+      });
+    check(performanceActivity.response.ok && performanceActivity.content.qualified,
+      "Dashboard suppression E2E fixture did not create a qualified real engagement.");
+    const metricTimestamp = new Date();
+    metricTimestamp.setUTCDate(metricTimestamp.getUTCDate() - 1);
+    metricTimestamp.setUTCHours(12, 0, 0, 0);
+    databaseCommand(
+      `UPDATE engagement_sessions
+       SET qualified_at = ${timestampSqlLiteral(metricTimestamp.toISOString())},
+           completed_at = ${timestampSqlLiteral(metricTimestamp.toISOString())},
+           updated_at = ${timestampSqlLiteral(metricTimestamp.toISOString())}
+       WHERE id = ${sqlLiteral(performanceSession.content.sessionId)}::uuid;
+       UPDATE engagement_activity_facts
+       SET server_accepted_at = ${timestampSqlLiteral(metricTimestamp.toISOString())},
+           created_at = ${timestampSqlLiteral(metricTimestamp.toISOString())}
+       WHERE session_id = ${sqlLiteral(performanceSession.content.sessionId)}::uuid;`,
+    );
+    const viewerD = await createSocialUser("dashboard-viewer-d", `Dashboard Viewer D ${runId}`);
+    const viewerE = await createSocialUser("dashboard-viewer-e", `Dashboard Viewer E ${runId}`);
+    const viewerF = await createSocialUser("dashboard-viewer-f", `Dashboard Viewer F ${runId}`);
+    const viewerG = await createSocialUser("dashboard-viewer-g", `Dashboard Viewer G ${runId}`);
+    await createQualifiedDashboardSession(
+      viewerD, episodeId, performanceContent.content, metricTimestamp.toISOString());
+    await createQualifiedDashboardSession(
+      viewerE, episodeId, performanceContent.content, metricTimestamp.toISOString());
+    await createQualifiedDashboardSession(
+      viewerF, episodeId, performanceContent.content, metricTimestamp.toISOString());
+    const excludedToday = new Date();
+    excludedToday.setUTCHours(0, 0, 0, 0);
+    const viewerGSessionId = await createQualifiedDashboardSession(
+      viewerG, episodeId, performanceContent.content, excludedToday.toISOString());
 
     const anonymousSocialContext = await browser.newContext({ locale: "th-TH" });
     const anonymousSocialPage = await anonymousSocialContext.newPage();
@@ -696,6 +894,72 @@ async function run() {
         reasonCode: "OTHER", note: "Social Browser E2E Story retention" },
     });
     check(hideStory.response.ok, "Social E2E Story hide failed.");
+    await creatorPage.goto(`${baseUrl}/creator/dashboard`, { waitUntil: "networkidle" });
+    await creatorPage.getByRole("heading", { level: 1, name: "Browser E2E Creator" }).waitFor();
+    await creatorPage.getByText("Insufficient data", { exact: true }).waitFor();
+    const hiddenDashboardStory = creatorPage.locator(
+      'section[aria-labelledby="dashboard-content"] li',
+    ).filter({ hasText: `Browser E2E Story ${runId}` }).first();
+    await hiddenDashboardStory.getByText("Hidden", { exact: true }).waitFor();
+    check(await hiddenDashboardStory.getByRole("link", { name: "View public Story" }).count() === 0,
+      "Owner Dashboard exposed a public action for a hidden Story.");
+    check(!(await creatorPage.locator("body").innerText()).includes("Social Browser E2E Story retention"),
+      "Owner Dashboard exposed an internal moderation note.");
+    const dashboardBody = await creatorPage.locator("body").innerText();
+    check(dashboardBody.includes(`Dashboard Archived Story ${runId}`),
+      "Archived Story was not retained in its owner's Dashboard.");
+    check(!dashboardBody.includes(`Dashboard Deleted Secret ${runId}`),
+      "Deleted Story title leaked into its owner's Dashboard.");
+    check(["NOVEL", "COMIC", "VIDEO"].every((type) => dashboardBody.includes(type)),
+      "Mixed NOVEL, COMIC, and VIDEO content was not represented in the Dashboard.");
+    const persistedStoryCount = databaseScalar(
+      `SELECT count(*) FROM stories
+       WHERE creator_user_id = ${sqlLiteral(creatorIdentity.id)}::uuid
+         AND status <> 'Deleted';`,
+    );
+    const storyOverviewCard = creatorPage.locator(
+      'section[aria-labelledby="dashboard-overview"] li',
+    ).filter({ hasText: "Stories" });
+    check(await storyOverviewCard.getByText(String(persistedStoryCount), { exact: true }).count() === 1,
+      "Dashboard Story overview count did not match persisted owner data.");
+    check(await creatorPage.locator(
+      'section[aria-labelledby="dashboard-content"] ul > li',
+    ).count() <= 10,
+    "Dashboard recent content exceeded its two bounded five-item lists.");
+    check(await creatorPage.locator(
+      'section[aria-labelledby="dashboard-attention"] ul > li',
+    ).count() <= 10,
+    "Dashboard attention output exceeded ten items.");
+    check(await creatorPage.getByRole("link", { name: "Create Story", exact: true }).count() === 1 &&
+      await creatorPage.getByRole("link", { name: "Edit Profile", exact: true }).count() === 1,
+    "Dashboard quick actions did not match the returned creator capabilities.");
+    await creatorPage.reload({ waitUntil: "networkidle" });
+    await creatorPage.getByText(`Dashboard Archived Story ${runId}`, { exact: true }).waitFor();
+    check(!(await creatorPage.locator("body").innerText()).includes(`Dashboard Deleted Secret ${runId}`),
+      "Dashboard reload did not preserve server-authoritative lifecycle truth.");
+
+    await creatorPage.getByRole("button", { name: "Refresh", exact: true }).click();
+    await creatorPage.getByText("Insufficient data", { exact: true }).waitFor();
+    check(!(await creatorPage.locator("body").innerText()).includes("Qualified Views"),
+      "Four-viewer Dashboard cell leaked a sensitive metric label or exact value.");
+    databaseCommand(
+      `UPDATE engagement_sessions
+       SET qualified_at = ${timestampSqlLiteral(metricTimestamp.toISOString())},
+           completed_at = ${timestampSqlLiteral(metricTimestamp.toISOString())},
+           updated_at = ${timestampSqlLiteral(metricTimestamp.toISOString())}
+       WHERE id = ${sqlLiteral(viewerGSessionId)}::uuid;
+       UPDATE engagement_activity_facts
+       SET server_accepted_at = ${timestampSqlLiteral(metricTimestamp.toISOString())},
+           created_at = ${timestampSqlLiteral(metricTimestamp.toISOString())}
+       WHERE session_id = ${sqlLiteral(viewerGSessionId)}::uuid;`,
+    );
+    await creatorPage.getByRole("button", { name: "Refresh", exact: true }).click();
+    const qualifiedViewsCard = creatorPage.locator(
+      'section[aria-labelledby="dashboard-performance"] li',
+    ).filter({ hasText: "Qualified Views" });
+    await qualifiedViewsCard.getByText("5", { exact: true }).waitFor();
+    check(await creatorPage.getByText("Insufficient data", { exact: true }).count() === 0,
+      "Five-viewer Dashboard cell remained suppressed.");
     await anonymousSocialPage.goto(`${baseUrl}${publicStoryPath}`, { waitUntil: "networkidle" });
     check(await anonymousSocialPage.getByText(`Browser E2E Story ${runId}`, { exact: true }).count() === 0,
       "Hidden Story remained available through the public browser route.");
@@ -727,6 +991,137 @@ async function run() {
         reasonCode: "OTHER", note: "Social Browser E2E Creator restore" },
     });
     check(restoreCreator.response.ok, "Social E2E Creator restore failed.");
+
+    const isolationContext = await browser.newContext({ locale: "th-TH" });
+    const isolationPage = await isolationContext.newPage();
+    await setBrowserSession(isolationPage, creatorIdentity.tokens);
+    await isolationPage.goto(`${baseUrl}/creator/dashboard`, { waitUntil: "networkidle" });
+    await isolationPage.getByRole("heading", { level: 1, name: "Browser E2E Creator" }).waitFor();
+    await isolationPage.evaluate((tokens) => {
+      localStorage.setItem("novelverse_access_token", tokens.accessToken);
+      localStorage.setItem("novelverse_refresh_token", tokens.refreshToken);
+      localStorage.setItem("novelverse_access_token_expires_at", tokens.accessTokenExpiresAt);
+      localStorage.setItem("novelverse_refresh_token_expires_at", tokens.refreshTokenExpiresAt);
+    }, userB.tokens);
+    await isolationPage.reload({ waitUntil: "networkidle" });
+    await isolationPage.getByRole("heading", { level: 1, name: `Social User B ${runId}` }).waitFor();
+    const isolatedBody = await isolationPage.locator("body").innerText();
+    check(!isolatedBody.includes(`Browser E2E Story ${runId}`) &&
+      !isolatedBody.includes(`Dashboard Archived Story ${runId}`),
+    "Sequential Creator B login retained Creator A Dashboard state.");
+    await isolationContext.close();
+
+    const terminalContext = await browser.newContext({ locale: "th-TH" });
+    const terminalPage = await terminalContext.newPage();
+    await setBrowserSession(terminalPage, viewerD.tokens);
+    await terminalPage.goto(`${baseUrl}/creator/dashboard`, { waitUntil: "networkidle" });
+    await terminalPage.getByRole("heading", { level: 1, name: `Dashboard Viewer D ${runId}` }).waitFor();
+    await terminalPage.evaluate(() => {
+      localStorage.setItem("novelverse_access_token", "invalid-dashboard-access");
+      localStorage.setItem("novelverse_refresh_token", "invalid-dashboard-refresh");
+    });
+    await terminalPage.goto(`${baseUrl}/creator/dashboard`, { waitUntil: "domcontentloaded" });
+    await terminalPage.waitForURL((url) =>
+      url.pathname === "/login" &&
+      url.searchParams.get("next") === "/creator/dashboard");
+    check(!(await terminalPage.locator("body").innerText()).includes(`Dashboard Viewer D ${runId}`),
+      "Terminal Dashboard 401 retained private confirmed content.");
+    await terminalContext.close();
+
+    const pendingIdentity = {
+      provider: "GOOGLE",
+      providerSubject: `dashboard-pending-${runId}`,
+      email: `dashboard-pending-${runId}@browser-e2e.test`,
+      displayName: `Dashboard Pending ${runId}`,
+    };
+    const pendingSignIn = await apiCall("/api/v1/dev/auth/social-sign-in", {
+      method: "POST", body: pendingIdentity,
+    });
+    check(pendingSignIn.response.ok, "Dashboard 403 fixture sign-in failed.");
+    const forbiddenDashboard = await apiCall("/api/v1/creator/dashboard", {
+      token: pendingSignIn.content.tokens.accessToken,
+    });
+    check(forbiddenDashboard.response.status === 403 &&
+      forbiddenDashboard.response.headers.get("content-type")?.startsWith("application/problem+json") &&
+      !JSON.stringify(forbiddenDashboard.content).includes("performance"),
+    "Inactive creator Dashboard did not return a private-data-free 403 Problem Details response.");
+    const pendingDocuments = await apiCall("/api/v1/legal-documents/current", {
+      token: pendingSignIn.content.tokens.accessToken,
+    });
+    const pendingRequired = pendingDocuments.content
+      .filter((item) => item.isRequired)
+      .map((item) => item.id);
+    const pendingAccepted = await apiCall("/api/v1/legal-acceptances", {
+      token: pendingSignIn.content.tokens.accessToken,
+      method: "POST",
+      body: { legalDocumentIds: pendingRequired, acceptanceSource: "DEVELOPMENT" },
+    });
+    check(pendingAccepted.response.ok, "Dashboard incomplete-profile fixture activation failed.");
+    const incompleteSignIn = await apiCall("/api/v1/dev/auth/social-sign-in", {
+      method: "POST", body: pendingIdentity,
+    });
+    const onboardingContext = await browser.newContext({ locale: "th-TH" });
+    const onboardingPage = await onboardingContext.newPage();
+    await setBrowserSession(onboardingPage, incompleteSignIn.content.tokens);
+    await onboardingPage.goto(`${baseUrl}/creator/dashboard`, { waitUntil: "networkidle" });
+    await onboardingPage.getByText("Complete your creator profile", { exact: true }).waitFor();
+    check(await onboardingPage.getByRole("link", { name: "Create Story", exact: true }).count() === 0 &&
+      await onboardingPage.getByRole("link", { name: "Edit Profile", exact: true }).count() === 1,
+    "Incomplete-profile Dashboard onboarding ignored capability restrictions.");
+    await onboardingContext.close();
+
+    await creatorPage.setViewportSize({ width: 390, height: 844 });
+    await creatorPage.reload({ waitUntil: "networkidle" });
+    const mobileHeadings = await creatorPage.getByRole("heading", { level: 2 }).allTextContents();
+    check(JSON.stringify(mobileHeadings) === JSON.stringify([
+      "Overview", "Performance snapshot", "Recent content", "Needs attention", "Quick actions",
+    ]), "Mobile Dashboard changed the approved semantic section order.");
+    check((await creatorPage.locator('a,button').evaluateAll((elements) =>
+      elements.filter((element) => element.textContent?.trim()).every((element) =>
+        !(element instanceof HTMLAnchorElement) || Boolean(element.getAttribute("href"))))),
+    "Dashboard exposed an unnamed or unreachable action at mobile width.");
+    let keyboardReachedAction = false;
+    for (let press = 0; press < 30 && !keyboardReachedAction; press += 1) {
+      await creatorPage.keyboard.press("Tab");
+      keyboardReachedAction = await creatorPage.evaluate(() => {
+        const element = document.activeElement;
+        return element instanceof HTMLAnchorElement || element instanceof HTMLButtonElement;
+      });
+    }
+    check(keyboardReachedAction, "Dashboard actions were not keyboard reachable.");
+    check((await creatorPage.getByText("Hidden", { exact: true }).count()) > 0 &&
+      (await creatorPage.getByText("ARCHIVED", { exact: true }).count()) > 0,
+    "Dashboard lifecycle status relied on color without textual meaning.");
+
+    const readLimitEvidence = await creatorPage.evaluate(async () => {
+      const token = localStorage.getItem("novelverse_access_token");
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const response = await fetch("http://localhost:5039/api/v1/creator/dashboard", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.status === 429) {
+          return {
+            status: response.status,
+            retryAfter: response.headers.get("retry-after"),
+            type: response.headers.get("content-type"),
+          };
+        }
+      }
+      return null;
+    });
+    check(readLimitEvidence?.status === 429 &&
+      readLimitEvidence.type?.startsWith("application/problem+json"),
+    "Real Creator Dashboard read quota did not return browser-observable 429 Problem Details.");
+    await creatorPage.getByRole("button", { name: "Refresh", exact: true }).click();
+    await creatorPage.getByText("Too many refreshes", { exact: true }).waitFor();
+    check(await creatorPage.getByRole("heading", { level: 1, name: "Browser E2E Creator" }).count() === 1,
+      "Dashboard 429 destroyed the last confirmed private response.");
+    await creatorPage.getByRole("button", { name: "Log out", exact: true }).click();
+    await creatorPage.waitForURL("**/login");
+    check(await creatorPage.evaluate(() =>
+      localStorage.getItem("novelverse_access_token") === null &&
+      localStorage.getItem("novelverse_refresh_token") === null),
+    "Creator Dashboard logout retained a client session.");
     await userBPage.reload({ waitUntil: "networkidle" });
     await userBPage.getByRole("button", { name: "Unlike", exact: true }).waitFor();
     await userBPage.getByRole("button", { name: "Following", exact: true }).waitFor();
@@ -1043,6 +1438,21 @@ async function run() {
       socialMutationQuotaReadIsolationVerified: true,
       socialSessionInvalidationVerified: true,
       socialPrivacyUnlinkVerified: true,
+      creatorDashboardEmptyVerified: true,
+      creatorDashboardLegacyRedirectVerified: true,
+      creatorDashboardRealContentVerified: true,
+      creatorDashboardHiddenOwnerViewVerified: true,
+      creatorDashboardSuppressionVerified: true,
+      creatorDashboardSuppressionTransitionVerified: true,
+      creatorDashboardZeroActivityVerified: true,
+      creatorDashboardArchivedDeletedSemanticsVerified: true,
+      creatorDashboardCrossOwnerIsolationVerified: true,
+      creatorDashboardReadRateLimitVerified: true,
+      creatorDashboardTerminal401Verified: true,
+      creatorDashboardForbiddenAndOnboardingVerified: true,
+      creatorDashboardResponsiveAccessibilityVerified: true,
+      creatorDashboardQuickActionsVerified: true,
+      creatorDashboardLogoutVerified: true,
       draftExcludedFromDiscovery: true,
       mockFallbackDetected: false,
     }, null, 2));
