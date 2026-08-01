@@ -21,7 +21,16 @@ vi.mock("@/features/moderation/ReportDialog", () => ({
     <div data-testid="report-target">{targetType}:{targetId}</div>,
 }));
 
-const params = () => Promise.resolve({ creatorSlug: "creator", storySlug: "story", episodeSlug: "episode" });
+const rawSlugs = {
+  creatorSlug: "creator-ไทย",
+  storySlug: "test-นิยาย",
+  episodeSlug: "test-นิยาย-ตอน-1",
+};
+const params = () => Promise.resolve({
+  creatorSlug: encodeURIComponent(rawSlugs.creatorSlug),
+  storySlug: encodeURIComponent(rawSlugs.storySlug),
+  episodeSlug: encodeURIComponent(rawSlugs.episodeSlug),
+});
 beforeEach(() => {
   vi.clearAllMocks();
   api.getPublicStory.mockResolvedValue({ id: "story-id" });
@@ -34,13 +43,15 @@ beforeEach(() => {
 
 describe("owning Episode report targets", () => {
   it.each([
-    ["NOVEL", (value: ReturnType<typeof params>) => <NovelReader params={value} />, "EPISODE:novel-episode"],
-    ["COMIC", (value: ReturnType<typeof params>) => <ComicReader params={value} />, "EPISODE:comic-episode"],
-    ["VIDEO", (value: ReturnType<typeof params>) => <VideoReader params={value} />, "EPISODE:video-episode"],
-  ])("%s reports its owning Episode", async (_type, createReader, expected) => {
+    ["NOVEL", (value: ReturnType<typeof params>) => <NovelReader params={value} />, "EPISODE:novel-episode", api.getPublicNovelContent],
+    ["COMIC", (value: ReturnType<typeof params>) => <ComicReader params={value} />, "EPISODE:comic-episode", api.getPublicComicPages],
+    ["VIDEO", (value: ReturnType<typeof params>) => <VideoReader params={value} />, "EPISODE:video-episode", api.getPublicVideoContent],
+  ])("%s decodes Thai route slugs and reports its owning Episode", async (_type, createReader, expected, contentCall) => {
     await act(async () => {
       render(<Suspense fallback={<p>loading</p>}>{createReader(params())}</Suspense>);
     });
     expect(await screen.findByTestId("report-target")).toHaveTextContent(expected);
+    expect(api.getPublicStory).toHaveBeenCalledWith(rawSlugs.creatorSlug, rawSlugs.storySlug);
+    expect(contentCall).toHaveBeenCalledWith(rawSlugs.creatorSlug, rawSlugs.storySlug, rawSlugs.episodeSlug);
   });
 });

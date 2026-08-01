@@ -232,20 +232,25 @@ async function createSearchFixture(page, fixture) {
         categoryIds: [category.id], tags: [tag], storyType: "NOVEL", readingMode: "VERTICAL",
       }),
     });
+    const episodeTitle = `ตอนทดสอบ ${suffix}`;
+    const contentText = `เนื้อหาทดสอบ ${suffix}`;
     const episode = await call(`/api/v1/creator/stories/${story.id}/episodes`, {
       method: "POST",
       body: JSON.stringify({
-        title: `ตอนทดสอบ ${suffix}`, episodeNumber: 1, sortOrder: 1,
+        title: episodeTitle, episodeNumber: 1, sortOrder: 1,
         slug: null, synopsis: null, visibility: "PUBLIC",
       }),
     });
     await call(`/api/v1/creator/stories/${story.id}/episodes/${episode.id}/content`, {
       method: "PUT",
-      body: JSON.stringify({ blocks: [{ type: "TEXT", textContent: `เนื้อหาทดสอบ ${suffix}`, mediaAssetId: null }] }),
+      body: JSON.stringify({ blocks: [{ type: "TEXT", textContent: contentText, mediaAssetId: null }] }),
     });
     await call(`/api/v1/creator/stories/${story.id}/publish`, { method: "POST" });
     await call(`/api/v1/creator/stories/${story.id}/episodes/${episode.id}/publish`, { method: "POST" });
-    return { storyId: story.id, title, tag, categorySlug: category.slug };
+    return {
+      storyId: story.id, title, storySlug: story.slug, tag, categorySlug: category.slug,
+      episodeTitle, episodeSlug: episode.slug, contentText,
+    };
   }, fixture);
 }
 
@@ -421,7 +426,7 @@ async function run() {
     await page.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]').waitFor();
 
     const thaiStoryTitle = `นักรบแห่งเงา ${runId}`;
-    await createSearchFixture(page, {
+    const thaiSearchFixture = await createSearchFixture(page, {
       title: thaiStoryTitle, tag: "  Fantasy-Thai  ", suffix: runId,
     });
 
@@ -483,6 +488,39 @@ async function run() {
     await page.reload({ waitUntil: "networkidle" });
     check(await page.getByLabel("คำค้นหา").inputValue() === thaiQuery,
       "Thai query was not restored after reload.");
+    await page.getByText(thaiStoryTitle, { exact: true }).waitFor();
+    const thaiSearchUrl = page.url();
+    const thaiStoryRequests = [];
+    const captureThaiStoryRequest = (request) => {
+      if (request.method() === "GET" && new URL(request.url()).pathname.includes("/api/v1/stories/")) {
+        thaiStoryRequests.push(request.url());
+      }
+    };
+    page.on("request", captureThaiStoryRequest);
+    await page.getByText(thaiStoryTitle, { exact: true }).click();
+    await page.waitForURL(/\/stories\/[^/]+\/[^/]+$/);
+    await page.getByRole("heading", { name: thaiStoryTitle }).waitFor();
+    await page.getByText(thaiSearchFixture.episodeTitle, { exact: false }).waitFor();
+    check(!(await page.locator("body").innerText()).toLowerCase().includes("mock"),
+      "Thai Story Detail exposed mock fallback content.");
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: thaiStoryTitle }).waitFor();
+    await page.getByText(thaiSearchFixture.episodeTitle, { exact: false }).waitFor();
+    await page.getByRole("link", { name: "เปิดอ่าน" }).click();
+    await page.waitForURL(/\/read-novel\/[^/]+\/[^/]+\/[^/]+$/);
+    await page.getByText(thaiSearchFixture.contentText, { exact: true }).waitFor();
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByText(thaiSearchFixture.contentText, { exact: true }).waitFor();
+    page.off("request", captureThaiStoryRequest);
+    const encodedThaiStorySlug = encodeURIComponent(thaiSearchFixture.storySlug);
+    const encodedThaiEpisodeSlug = encodeURIComponent(thaiSearchFixture.episodeSlug);
+    check(thaiStoryRequests.some((url) => url.includes(encodedThaiStorySlug)),
+      "Thai Story Detail did not issue a single-encoded Story request.");
+    check(thaiStoryRequests.some((url) => url.includes(encodedThaiEpisodeSlug)),
+      "Thai reader did not issue a single-encoded Episode request.");
+    check(thaiStoryRequests.every((url) => !url.includes("%25E0")),
+      "Thai Story or Episode request was double encoded.");
+    await page.goto(thaiSearchUrl, { waitUntil: "networkidle" });
     await page.getByText(thaiStoryTitle, { exact: true }).waitFor();
     await page.getByRole("button", { name: "ล้างตัวกรอง" }).click();
 
@@ -1415,6 +1453,10 @@ async function run() {
       videoReaderVerified: true,
       publicDiscoveryVerified: true,
       storyDetailVerified: true,
+      unicodeStoryDetailVerified: true,
+      unicodeEpisodeListVerified: true,
+      unicodeReaderReloadVerified: true,
+      unicodeSingleEncodingVerified: true,
       publicReaderRoutingVerified: true,
       readerLibraryVerified: true,
       readingProgressVerified: true,
