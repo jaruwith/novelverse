@@ -4,7 +4,7 @@ import {
   publishEpisode, replaceEpisodeContent, updateEpisode, uploadNovelContentImage,
   uploadComicPage, replaceComicPages,
   createVideoStory, replaceVideoContent,
-  listPublicStories,
+  listPublicStories, getCreatorDashboard,
 } from "./api";
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -38,6 +38,39 @@ describe("verified NovelVerseApi client", () => {
     const page = await listStories();
     expect(page.items[0].title).toBe("Story");
     expect(new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers).get("Authorization")).toBe("Bearer secret");
+  });
+
+  it("loads the typed private Dashboard through the shared client with no-store", async () => {
+    localStorage.setItem("novelverse_access_token", "dashboard-token");
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({
+      generatedAt: "2026-07-29T08:30:00Z",
+      period: { kind: "COMPLETE_UTC_DAYS" },
+      creator: { eligibility: "ELIGIBLE", profileVisibility: "VISIBLE" },
+      overview: {},
+      performance: { availability: "NO_ACTIVITY" },
+      content: { recentStories: [], recentDrafts: [], recentEpisodes: [] },
+      attention: { items: [] },
+      capabilities: {},
+    }));
+    await getCreatorDashboard();
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("http://localhost:5039/api/v1/creator/dashboard");
+    expect(init?.cache).toBe("no-store");
+    expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer dashboard-token");
+  });
+
+  it("rejects an unknown Dashboard enum instead of guessing or falling back", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({
+      generatedAt: "2026-07-29T08:30:00Z",
+      period: { kind: "ARBITRARY_RANGE" },
+      creator: { eligibility: "ELIGIBLE", profileVisibility: "VISIBLE" },
+      overview: {},
+      performance: { availability: "NO_ACTIVITY" },
+      content: { recentStories: [], recentDrafts: [], recentEpisodes: [] },
+      attention: { items: [] },
+      capabilities: {},
+    }));
+    await expect(getCreatorDashboard()).rejects.toThrow("approved contract");
   });
 
   it("loads discovery anonymously with backend filters and no mock fallback", async () => {

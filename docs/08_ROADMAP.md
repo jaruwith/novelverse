@@ -3,9 +3,9 @@
 | รายการ | ค่า |
 |---|---|
 | Purpose | จัด milestone ตาม phase ที่กำหนด โดยยึดสถานะจาก repository และไม่กำหนดวันส่งมอบเอง |
-| Current Status | Phase 0 และ Phase 1 อยู่ระหว่างดำเนินการ; phase หลังจากนั้นยังไม่เริ่มใน implementation |
-| Version | 0.1.0 |
-| Last Updated | 19 กรกฎาคม 2569 |
+| Current Status | Platform Foundation through Epic 12C is complete; Epic 13 Creator Dashboard architecture is approved and implementation is complete pending independent evidence review |
+| Version | v1.0.0-alpha.2 architecture baseline |
+| Last Updated | 29 กรกฎาคม 2569 |
 | Author | Codex — Lead Software Architect and Technical Documentation Engineer |
 
 ## Table of Contents
@@ -58,19 +58,20 @@
 
 ## Phase 4 — Creator Dashboard
 
-**สถานะ:** มี wireframe; production implementation ยังไม่เริ่ม
+**สถานะ:** Epic 13 architecture approved; backend and frontend implementation complete pending independent evidence review
 
-- เชื่อม profile, story/chapter CRUD, upload, draft/publish, comments, analytics และ settings กับระบบจริง
-- เพิ่ม validation, ownership, error handling และ revision workflow
-- Publishing workflow ขั้นสุดท้าย: **ยังไม่ได้กำหนด**
+- Epic 13A: canonical `/creator/dashboard`, owner-scoped overview, recent content, attention, capabilities, and legacy mock-route migration
+- Epic 13B: fixed seven-complete-UTC-day performance snapshot, comparison deltas, privacy suppression, and performance proof
+- Epic 16: detailed Creator Analytics, arbitrary ranges, charts, drill-down, cohorts, and export
+- Final Series/Publishing workflow remains unresolved and is not redesigned by Epic 13
 
 ## Phase 5 — Community
 
-**สถานะ:** มี wireframeบางส่วน; production implementation ยังไม่เริ่ม
+**สถานะ:** Reader Library, Reading Progress, Moderation, Engagement Measurement, Story Like, and Creator Follow foundations are complete through Epic 12C; remaining Community work is future scope
 
 - Follow story, chapter like, flat comments, history/progress และ reporting
 - กำหนด moderation policy, anti-abuse, notification ที่จำเป็น และ privacy
-- Creator-follow เป็น placeholder อนาคตและยังไม่อนุมัติสำหรับ MVP
+- Creator Follow is implemented as authenticated relational current-state truth; notifications, public identity lists, feeds, comments/reviews, ranking, and recommendations remain future scope
 
 ## Phase 6 — Deployment
 

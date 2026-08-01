@@ -1,1 +1,0 @@
-import { ChaptersPage } from "@/components/DashboardPages"; import { stories } from "@/lib/mockData"; export function generateStaticParams(){return stories.map(s=>({id:s.id}))} export default function Page(){return <ChaptersPage/>}

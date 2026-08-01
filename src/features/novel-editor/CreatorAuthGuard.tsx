@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, apiErrorMessage, getCurrentUser } from "./api";
@@ -35,8 +36,9 @@ export function CreatorAuthGuard({ children }: { children: React.ReactNode }) {
   if (user.status !== "ACTIVE") return <main className={styles.page}><div className={styles.alert} role="alert">
     บัญชีต้องมีสถานะ ACTIVE ก่อนใช้งาน Creator Studio
   </div></main>;
-  if (!user.creatorSlug) return <main className={styles.page}><div className={styles.alert} role="alert">
+  const permitsProfileSetup = pathname === "/creator/dashboard" || pathname === "/creator/profile";
+  if (!user.creatorSlug && !permitsProfileSetup) return <main className={styles.page}><div className={styles.alert} role="alert">
     กรุณาตั้งค่าโปรไฟล์ผู้สร้างและ Creator slug ก่อนใช้งาน Creator Studio
-  </div><a href="/dashboard/profile">ไปที่โปรไฟล์เดิม</a></main>;
+  </div><Link href="/creator/profile">ไปที่โปรไฟล์ผู้สร้าง</Link></main>;
   return children;
 }

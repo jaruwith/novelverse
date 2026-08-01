@@ -7,6 +7,7 @@ import type {
   ModerationReason, ModerationReport, ModerationReportStatus, ModerationTargetType,
 } from "./types";
 import { createLocalKey } from "./types";
+import { parseCreatorDashboardResponse, type CreatorDashboardResponse } from "@/features/creator-dashboard/types";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5039").replace(/\/$/, "");
 const ACCESS_KEY = "novelverse_access_token";
@@ -155,6 +156,9 @@ export async function developmentLogin(input: {
   return response;
 }
 export const getCurrentUser = () => request<CurrentUser>("/api/v1/users/me");
+export const getCreatorDashboard = (): Promise<CreatorDashboardResponse> =>
+  request<unknown>("/api/v1/creator/dashboard", { cache: "no-store" })
+    .then(parseCreatorDashboardResponse);
 export const getCurrentLegalDocuments = () =>
   request<LegalDocument[]>("/api/v1/legal-documents/current");
 export const acceptLegalDocuments = (legalDocumentIds: string[]) =>
