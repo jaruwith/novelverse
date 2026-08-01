@@ -1,10 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Suspense } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PublicHome } from "./PublicHome";
 import { StoryDetail } from "./StoryDetail";
 import { resolvePublicEpisodeHref } from "./routes";
 import * as api from "@/features/novel-editor/api";
 import type { PublicStory } from "@/features/novel-editor/types";
+import PublicStoryDetailPage from "@/app/(public)/stories/[creatorSlug]/[storySlug]/page";
 
 vi.mock("@/features/novel-editor/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/novel-editor/api")>();
@@ -31,6 +33,7 @@ const page = (items = [story]) => ({
 });
 
 beforeEach(() => {
+  vi.clearAllMocks();
   localStorage.clear();
   window.history.replaceState(null, "", "/");
   vi.mocked(api.listPublicStories).mockResolvedValue(page());
@@ -62,6 +65,16 @@ beforeEach(() => {
 });
 
 describe("public discovery Home", () => {
+  it("builds a single-encoded Story Detail link for a Thai Story slug", async () => {
+    const thaiStory = { ...story, title: "test นิยาย", slug: "test-นิยาย", creatorSlug: "local-creator" };
+    vi.mocked(api.listPublicStories).mockResolvedValue(page([thaiStory]));
+    render(<PublicHome />);
+    expect(await screen.findByRole("link", { name: thaiStory.title })).toHaveAttribute(
+      "href",
+      "/stories/local-creator/test-%E0%B8%99%E0%B8%B4%E0%B8%A2%E0%B8%B2%E0%B8%A2",
+    );
+  });
+
   it("loads real discovery cards and applies type and category filters", async () => {
     render(<PublicHome />);
     expect(screen.getByRole("status")).toHaveTextContent("กำลังค้นหา");
@@ -107,6 +120,43 @@ describe("public discovery Home", () => {
 });
 
 describe("public Story Detail", () => {
+  it("decodes encoded Thai route segments once before loading Story and Episode data", async () => {
+    const thaiStory = { ...story, title: "test นิยาย", slug: "test-นิยาย", creatorSlug: "local-creator" };
+    vi.mocked(api.getPublicStory).mockResolvedValue(thaiStory);
+    await act(async () => {
+      render(<Suspense fallback={<p>loading</p>}><PublicStoryDetailPage params={Promise.resolve({
+        creatorSlug: "local-creator",
+        storySlug: "test-%E0%B8%99%E0%B8%B4%E0%B8%A2%E0%B8%B2%E0%B8%A2",
+      })} /></Suspense>);
+    });
+    expect(await screen.findByRole("heading", { name: thaiStory.title })).toBeInTheDocument();
+    expect(api.getPublicStory).toHaveBeenCalledWith("local-creator", "test-นิยาย");
+    expect(api.listPublicEpisodes).toHaveBeenCalledWith("local-creator", "test-นิยาย");
+    expect(screen.getByRole("link", { name: "เปิดอ่าน" })).toHaveAttribute(
+      "href",
+      "/read-novel/local-creator/test-%E0%B8%99%E0%B8%B4%E0%B8%A2%E0%B8%B2%E0%B8%A2/episode-one",
+    );
+  });
+
+  it("fails malformed route encoding safely without issuing Story requests", async () => {
+    await act(async () => {
+      render(<Suspense fallback={<p>loading</p>}><PublicStoryDetailPage params={Promise.resolve({
+        creatorSlug: "local-creator",
+        storySlug: "bad%E0%A4%A",
+      })} /></Suspense>);
+    });
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(api.getPublicStory).not.toHaveBeenCalled();
+    expect(api.listPublicEpisodes).not.toHaveBeenCalled();
+  });
+
+  it("retains generic not-found behavior for a genuinely missing Story", async () => {
+    vi.mocked(api.getPublicStory).mockRejectedValueOnce(new api.ApiError(404));
+    render(<StoryDetail creatorSlug="creator-one" storySlug="missing-story" />);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: story.title })).not.toBeInTheDocument();
+  });
+
   it("requires sign-in for anonymous social mutations", async () => {
     render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
     expect(await screen.findByRole("button", { name: "Like" })).toBeInTheDocument();

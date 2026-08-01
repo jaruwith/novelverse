@@ -336,7 +336,7 @@ export const replaceComicPages = (storyId: string, episodeId: string, mediaAsset
   });
 export async function getPublicComicPages(creatorSlug: string, storySlug: string, episodeSlug: string) {
   const response = await request<ComicPagesResponse>(
-    `/api/v1/stories/${creatorSlug}/${storySlug}/episodes/${episodeSlug}/comic-pages`,
+    `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes/${encodeURIComponent(episodeSlug)}/comic-pages`,
   );
   return { ...response, pages: response.pages.map((page) => ({
     ...page, mediaUrl: new URL(page.mediaUrl, API_BASE).toString(),
@@ -361,4 +361,6 @@ export const replaceVideoContent = (storyId: string, episodeId: string, url: str
     method: "PUT", body: JSON.stringify({ url, title }),
   });
 export const getPublicVideoContent = (creatorSlug: string, storySlug: string, episodeSlug: string) =>
-  request<VideoContent>(`/api/v1/stories/${creatorSlug}/${storySlug}/episodes/${episodeSlug}/video-content`);
+  request<VideoContent>(
+    `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes/${encodeURIComponent(episodeSlug)}/video-content`,
+  );

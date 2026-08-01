@@ -4,7 +4,8 @@ import {
   publishEpisode, replaceEpisodeContent, updateEpisode, uploadNovelContentImage,
   uploadComicPage, replaceComicPages,
   createVideoStory, replaceVideoContent,
-  listPublicStories, getCreatorDashboard,
+  listPublicStories, getCreatorDashboard, getPublicStory, listPublicEpisodes,
+  getPublicNovelContent, getPublicComicPages, getPublicVideoContent,
 } from "./api";
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -87,6 +88,37 @@ describe("verified NovelVerseApi client", () => {
     expect(url).toBe("http://localhost:5039/api/v1/stories?page=2&pageSize=12&sort=RELEVANCE&q=%E0%B9%81%E0%B8%A1%E0%B8%A7+%E0%B9%84%E0%B8%97%E0%B8%A2&storyType=COMIC&categorySlug=fantasy&tag=magic&creatorSlug=creator-one&languageCode=th&contentRating=TEEN");
     expect(new Headers(init?.headers).has("Authorization")).toBe(false);
     expect(result.items[0].coverUrl).toBe("http://localhost:5039/api/v1/media-assets/m1/content");
+  });
+
+  it("single-encodes raw Thai Story and Episode slugs for every public content API", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ coverUrl: null }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], page: 1, pageSize: 100, totalItems: 0, totalPages: 0,
+        hasPreviousPage: false, hasNextPage: false }))
+      .mockResolvedValueOnce(jsonResponse({ episodeId: "e1", wordCount: 0, blocks: [] }))
+      .mockResolvedValueOnce(jsonResponse({ episodeId: "e1", pages: [] }))
+      .mockResolvedValueOnce(jsonResponse({ episodeId: "e1", videoId: "dQw4w9WgXcQ", title: "Video" }));
+
+    const creatorSlug = "local-creator";
+    const storySlug = "test-นิยาย";
+    const episodeSlug = "test-นิยาย-ตอน-1";
+    await getPublicStory(creatorSlug, storySlug);
+    await listPublicEpisodes(creatorSlug, storySlug);
+    await getPublicNovelContent(creatorSlug, storySlug, episodeSlug);
+    await getPublicComicPages(creatorSlug, storySlug, episodeSlug);
+    await getPublicVideoContent(creatorSlug, storySlug, episodeSlug);
+
+    const urls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    const encodedStory = encodeURIComponent(storySlug);
+    const encodedEpisode = encodeURIComponent(episodeSlug);
+    expect(urls[0]).toBe(`http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}`);
+    expect(urls[1]).toBe(`http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes?page=1&pageSize=100`);
+    expect(urls.slice(2)).toEqual([
+      `http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/content`,
+      `http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/comic-pages`,
+      `http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/video-content`,
+    ]);
+    expect(urls.every((url) => url.includes("%E0") && !url.includes("%25E0"))).toBe(true);
   });
 
   it("maps content envelope and nullable block fields without leaking response ids", async () => {

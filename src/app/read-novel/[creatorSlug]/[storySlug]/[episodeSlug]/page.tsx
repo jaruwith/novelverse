@@ -8,11 +8,27 @@ import { recordEpisodeProgress } from "@/features/reader-state/progress";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
 import { EngagementSessionController } from "@/features/engagement/controller";
 import { buildOrderedContentEvidence } from "@/features/engagement/evidence";
+import {
+  decodeRouteSegmentOnce,
+  ROUTE_SEGMENT_UNAVAILABLE_MESSAGE,
+} from "@/lib/routeSegments";
+
+type ReaderSlugs = { creatorSlug: string; storySlug: string; episodeSlug: string };
 
 export default function NovelReaderPage({ params }: {
-  params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
+  params: Promise<ReaderSlugs>;
 }) {
-  const { creatorSlug, storySlug, episodeSlug } = use(params);
+  const routeParams = use(params);
+  const creatorSlug = decodeRouteSegmentOnce(routeParams.creatorSlug);
+  const storySlug = decodeRouteSegmentOnce(routeParams.storySlug);
+  const episodeSlug = decodeRouteSegmentOnce(routeParams.episodeSlug);
+  if (creatorSlug === null || storySlug === null || episodeSlug === null) {
+    return <main className="reader"><p role="alert">{ROUTE_SEGMENT_UNAVAILABLE_MESSAGE}</p></main>;
+  }
+  return <NovelReader creatorSlug={creatorSlug} storySlug={storySlug} episodeSlug={episodeSlug} />;
+}
+
+function NovelReader({ creatorSlug, storySlug, episodeSlug }: ReaderSlugs) {
   const [blocks, setBlocks] = useState<EditorBlock[] | null>(null);
   const [error, setError] = useState("");
   const [episodeId, setEpisodeId] = useState("");

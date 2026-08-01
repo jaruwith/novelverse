@@ -7,11 +7,27 @@ import { recordEpisodeProgress } from "@/features/reader-state/progress";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
 import { EngagementSessionController } from "@/features/engagement/controller";
 import { unsupportedVideoEvidence } from "@/features/engagement/evidence";
+import {
+  decodeRouteSegmentOnce,
+  ROUTE_SEGMENT_UNAVAILABLE_MESSAGE,
+} from "@/lib/routeSegments";
+
+type ReaderSlugs = { creatorSlug: string; storySlug: string; episodeSlug: string };
 
 export default function VideoReaderPage({ params }: {
-  params: Promise<{ creatorSlug: string; storySlug: string; episodeSlug: string }>;
+  params: Promise<ReaderSlugs>;
 }) {
-  const { creatorSlug, storySlug, episodeSlug } = use(params);
+  const routeParams = use(params);
+  const creatorSlug = decodeRouteSegmentOnce(routeParams.creatorSlug);
+  const storySlug = decodeRouteSegmentOnce(routeParams.storySlug);
+  const episodeSlug = decodeRouteSegmentOnce(routeParams.episodeSlug);
+  if (creatorSlug === null || storySlug === null || episodeSlug === null) {
+    return <main><p role="alert">{ROUTE_SEGMENT_UNAVAILABLE_MESSAGE}</p></main>;
+  }
+  return <VideoReader creatorSlug={creatorSlug} storySlug={storySlug} episodeSlug={episodeSlug} />;
+}
+
+function VideoReader({ creatorSlug, storySlug, episodeSlug }: ReaderSlugs) {
   const [content, setContent] = useState<VideoContent | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
