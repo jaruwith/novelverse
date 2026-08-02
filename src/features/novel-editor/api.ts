@@ -8,6 +8,10 @@ import type {
 } from "./types";
 import { createLocalKey } from "./types";
 import { parseCreatorDashboardResponse, type CreatorDashboardResponse } from "@/features/creator-dashboard/types";
+import {
+  parseCreatorEpisodeNavigationResponse,
+  type CreatorEpisodeNavigationResponse,
+} from "@/features/reader-navigation/types";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5039").replace(/\/$/, "");
 const ACCESS_KEY = "novelverse_access_token";
@@ -15,6 +19,7 @@ const REFRESH_KEY = "novelverse_refresh_token";
 const ACCESS_EXPIRY_KEY = "novelverse_access_token_expires_at";
 const REFRESH_EXPIRY_KEY = "novelverse_refresh_token_expires_at";
 const SESSION_CHANGED_EVENT = "novelverse:session-changed";
+let sessionGeneration = 0;
 
 const absoluteApiUrl = (url: string | null) => url ? new URL(url, API_BASE).toString() : null;
 
@@ -30,17 +35,22 @@ export function storeTokens(tokens: TokenResponse) {
   localStorage.setItem(REFRESH_KEY, tokens.refreshToken);
   localStorage.setItem(ACCESS_EXPIRY_KEY, tokens.accessTokenExpiresAt);
   localStorage.setItem(REFRESH_EXPIRY_KEY, tokens.refreshTokenExpiresAt);
+  sessionGeneration += 1;
   window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
 export function clearSession() {
   if (typeof window === "undefined") return;
   [ACCESS_KEY, REFRESH_KEY, ACCESS_EXPIRY_KEY, REFRESH_EXPIRY_KEY].forEach((key) => localStorage.removeItem(key));
+  sessionGeneration += 1;
   window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
 export function hasSession() {
   return typeof window !== "undefined" && Boolean(localStorage.getItem(REFRESH_KEY));
+}
+export function getSessionGeneration() {
+  return sessionGeneration;
 }
 export function subscribeToSessionChanges(listener: () => void) {
   if (typeof window === "undefined") return () => undefined;
@@ -97,7 +107,8 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
         ...init.headers,
       },
     });
-  } catch {
+  } catch (reason) {
+    if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
     throw new ApiError(0, { detail: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองอีกครั้ง" });
   }
   if (response.status === 401 && retry && await refreshSession()) return request<T>(path, init, false);
@@ -202,21 +213,26 @@ export const listPublicEpisodes = (creatorSlug: string, storySlug: string, page 
   request<PagedResponse<PublicEpisode>>(
     `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes?page=${page}&pageSize=${pageSize}`,
   );
+export const getPublicEpisodeNavigation = (creatorSlug: string, storySlug: string, episodeSlug: string,
+  signal?: AbortSignal) => request<unknown>(
+  `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}`
+  + `/episodes/${encodeURIComponent(episodeSlug)}/navigation`, { signal, cache: "no-store" },
+).then(parseCreatorEpisodeNavigationResponse) as Promise<CreatorEpisodeNavigationResponse>;
 export const addBookmark = (storyId: string) =>
   request<LibraryStory>(`/api/v1/me/library/stories/${encodeURIComponent(storyId)}`, { method: "POST" })
     .then((story) => ({ ...story, coverUrl: absoluteApiUrl(story.coverUrl) }));
-export const removeBookmark = (storyId: string) =>
-  request<void>(`/api/v1/me/library/stories/${encodeURIComponent(storyId)}`, { method: "DELETE" });
-export const listLibrary = (page = 1, pageSize = 20) =>
-  request<PagedResponse<LibraryStory>>(`/api/v1/me/library?page=${page}&pageSize=${pageSize}`)
+export const removeBookmark = (storyId: string, signal?: AbortSignal) =>
+  request<void>(`/api/v1/me/library/stories/${encodeURIComponent(storyId)}`, { method: "DELETE", signal });
+export const listLibrary = (page = 1, pageSize = 20, signal?: AbortSignal) =>
+  request<PagedResponse<LibraryStory>>(`/api/v1/me/library?page=${page}&pageSize=${pageSize}`, { signal })
     .then((result) => ({ ...result, items: result.items.map((story) => ({
       ...story, coverUrl: absoluteApiUrl(story.coverUrl),
     })) }));
-export const listReadingProgress = (page = 1, pageSize = 10) =>
-  request<PagedResponse<ReadingProgress>>(`/api/v1/me/reading-progress?page=${page}&pageSize=${pageSize}`);
-export const upsertReadingProgress = (storyId: string, episodeId: string) =>
+export const listReadingProgress = (page = 1, pageSize = 10, signal?: AbortSignal) =>
+  request<PagedResponse<ReadingProgress>>(`/api/v1/me/reading-progress?page=${page}&pageSize=${pageSize}`, { signal });
+export const upsertReadingProgress = (storyId: string, episodeId: string, signal?: AbortSignal) =>
   request<ReadingProgress>("/api/v1/me/reading-progress", {
-    method: "PUT", body: JSON.stringify({ storyId, episodeId }),
+    method: "PUT", body: JSON.stringify({ storyId, episodeId }), signal,
   });
 export const submitModerationReport = (targetType: ModerationTargetType, targetId: string,
   reason: ModerationReason, comment: string | null) =>
@@ -292,9 +308,11 @@ export async function getEpisodeContent(storyId: string, episodeId: string) {
     }),
   };
 }
-export async function getPublicNovelContent(creatorSlug: string, storySlug: string, episodeSlug: string) {
+export async function getPublicNovelContent(creatorSlug: string, storySlug: string, episodeSlug: string,
+  signal?: AbortSignal) {
   const response = await request<NovelContentResponse>(
     `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes/${encodeURIComponent(episodeSlug)}/content`,
+    { signal },
   );
   return {
     ...response,
@@ -334,9 +352,11 @@ export const replaceComicPages = (storyId: string, episodeId: string, mediaAsset
   request<ComicPagesResponse>(`/api/v1/creator/stories/${storyId}/episodes/${episodeId}/comic-pages`, {
     method: "PUT", body: JSON.stringify({ pages: mediaAssetIds.map((mediaAssetId) => ({ mediaAssetId })) }),
   });
-export async function getPublicComicPages(creatorSlug: string, storySlug: string, episodeSlug: string) {
+export async function getPublicComicPages(creatorSlug: string, storySlug: string, episodeSlug: string,
+  signal?: AbortSignal) {
   const response = await request<ComicPagesResponse>(
     `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes/${encodeURIComponent(episodeSlug)}/comic-pages`,
+    { signal },
   );
   return { ...response, pages: response.pages.map((page) => ({
     ...page, mediaUrl: new URL(page.mediaUrl, API_BASE).toString(),
@@ -360,7 +380,9 @@ export const replaceVideoContent = (storyId: string, episodeId: string, url: str
   request<VideoContent>(`/api/v1/creator/stories/${storyId}/episodes/${episodeId}/video-content`, {
     method: "PUT", body: JSON.stringify({ url, title }),
   });
-export const getPublicVideoContent = (creatorSlug: string, storySlug: string, episodeSlug: string) =>
+export const getPublicVideoContent = (creatorSlug: string, storySlug: string, episodeSlug: string,
+  signal?: AbortSignal) =>
   request<VideoContent>(
     `/api/v1/stories/${encodeURIComponent(creatorSlug)}/${encodeURIComponent(storySlug)}/episodes/${encodeURIComponent(episodeSlug)}/video-content`,
+    { signal },
   );

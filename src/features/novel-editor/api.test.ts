@@ -6,6 +6,8 @@ import {
   createVideoStory, replaceVideoContent,
   listPublicStories, getCreatorDashboard, getPublicStory, listPublicEpisodes,
   getPublicNovelContent, getPublicComicPages, getPublicVideoContent,
+  getPublicEpisodeNavigation,
+  getSessionGeneration, listReadingProgress, storeTokens, subscribeToSessionChanges,
 } from "./api";
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -17,6 +19,23 @@ beforeEach(() => {
 });
 
 describe("verified NovelVerseApi client", () => {
+  it("advances the in-memory session generation on sign-in and terminal 401", async () => {
+    const initialGeneration = getSessionGeneration();
+    const sessionChanged = vi.fn();
+    const unsubscribe = subscribeToSessionChanges(sessionChanged);
+    storeTokens({
+      accessToken: "access", accessTokenExpiresAt: "2026-08-02T01:00:00Z",
+      refreshToken: "refresh", refreshTokenExpiresAt: "2026-08-03T00:00:00Z",
+    });
+    expect(getSessionGeneration()).toBe(initialGeneration + 1);
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ title: "Unauthorized" }, 401));
+    await expect(listReadingProgress()).rejects.toMatchObject({ status: 401 });
+    expect(getSessionGeneration()).toBe(initialGeneration + 2);
+    expect(sessionChanged).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem("novelverse_refresh_token")).toBeNull();
+    unsubscribe();
+  });
+
   it("maps development login and persists the actual token response", async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({
       user: { id: "u1", status: "ACTIVE", displayName: "Writer", creatorSlug: null, activatedAt: null, createdAt: "2026-01-01Z" },
@@ -119,6 +138,23 @@ describe("verified NovelVerseApi client", () => {
       `http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/video-content`,
     ]);
     expect(urls.every((url) => url.includes("%E0") && !url.includes("%25E0"))).toBe(true);
+  });
+
+  it("single-encodes raw Unicode navigation slugs and forwards cancellation", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({
+      story: { id: "11111111-1111-4111-8111-111111111111", title: "Story", creatorSlug: "ผู้สร้าง",
+        slug: "นิยาย", storyType: "NOVEL" },
+      currentEpisode: { id: "22222222-2222-4222-8222-222222222222", title: "ตอน", slug: "ตอน-1",
+        episodeNumber: 1, sortOrder: 1, visibility: "PUBLIC" },
+      previousEpisode: null, nextEpisode: null,
+    }));
+    const controller = new AbortController();
+    await getPublicEpisodeNavigation("ผู้สร้าง", "นิยาย", "ตอน-1", controller.signal);
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(url)).toContain("/%E0");
+    expect(String(url)).not.toContain("%25E0");
+    expect(init?.signal).toBe(controller.signal);
+    expect(init?.cache).toBe("no-store");
   });
 
   it("maps content envelope and nullable block fields without leaking response ids", async () => {

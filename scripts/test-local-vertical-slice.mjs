@@ -4,6 +4,7 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { deflateSync } from "node:zlib";
+import { collectExpectedEngagementStarts } from "./engagement-response-collector.mjs";
 
 const baseUrl = "http://localhost:3000";
 const apiUrl = "http://localhost:5039";
@@ -59,6 +60,16 @@ async function createSocialUser(prefix, displayName) {
   const signed = await apiCall("/api/v1/dev/auth/social-sign-in", { method: "POST", body: identity });
   check(signed.response.ok, `${displayName} final development sign-in failed.`);
   return { id: signed.content.user.id, slug, identity, tokens: signed.content.tokens };
+}
+
+async function replaceBrowserSession(page, tokens) {
+  await page.evaluate((value) => {
+    localStorage.setItem("novelverse_access_token", value.accessToken);
+    localStorage.setItem("novelverse_refresh_token", value.refreshToken);
+    localStorage.setItem("novelverse_access_token_expires_at", value.accessTokenExpiresAt);
+    localStorage.setItem("novelverse_refresh_token_expires_at", value.refreshTokenExpiresAt);
+    window.dispatchEvent(new Event("novelverse:session-changed"));
+  }, tokens);
 }
 
 async function createQualifiedDashboardSession(viewer, episodeId, content, occurredAt) {
@@ -264,16 +275,32 @@ async function run() {
   const context = await browser.newContext({ locale: "th-TH" });
   const page = await context.newPage();
   const engagementStarts = [];
-  page.on("response", async (response) => {
+  const pendingEngagementResponses = new Set();
+  const engagementResponseErrors = [];
+  page.on("response", (response) => {
     if (response.request().method() === "POST" &&
         /\/api\/v1\/engagement\/sessions$/.test(new URL(response.url()).pathname) &&
         response.ok()) {
-      const body = await response.json().catch(() => null);
-      const requestBody = response.request().postDataJSON();
-      engagementStarts.push(body ? { ...body, clientSessionKey: requestBody.clientSessionKey,
-        targetId: requestBody.targetId } : null);
+      const pending = (async () => {
+        const body = await response.json().catch(() => null);
+        const requestBody = response.request().postDataJSON();
+        engagementStarts.push(body ? { ...body, clientSessionKey: requestBody.clientSessionKey,
+          targetId: requestBody.targetId } : null);
+      })();
+      pendingEngagementResponses.add(pending);
+      void pending.then(
+        () => pendingEngagementResponses.delete(pending),
+        (reason) => {
+          engagementResponseErrors.push(reason);
+          pendingEngagementResponses.delete(pending);
+        },
+      );
     }
   });
+  async function waitForPendingEngagementResponses() {
+    while (pendingEngagementResponses.size) await Promise.all([...pendingEngagementResponses]);
+    if (engagementResponseErrors.length) throw engagementResponseErrors.shift();
+  }
   page.on("requestfailed", (request) => {
     console.error(`Request failed: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? "unknown"})`);
   });
@@ -355,6 +382,32 @@ async function run() {
     await page.getByText(testText).waitFor();
     await page.getByTestId("novel-content-renderer").locator("img").waitFor();
 
+    const novelNavigationFixture = await page.evaluate(async ({ storyId, runId }) => {
+      const api = "http://localhost:5039";
+      const token = localStorage.getItem("novelverse_access_token");
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+      const created = [];
+      for (let number = 2; number <= 22; number += 1) {
+        const episode = await fetch(`${api}/api/v1/creator/stories/${storyId}/episodes`, {
+          method: "POST", headers, body: JSON.stringify({ title: `Navigation Episode ${number} ${runId}`,
+            episodeNumber: number, sortOrder: number, slug: null, synopsis: null, visibility: "PUBLIC" }),
+        }).then(async (response) => {
+          if (!response.ok) throw new Error(`Navigation fixture Episode ${number} returned ${response.status}.`);
+          return response.json();
+        });
+        const content = await fetch(`${api}/api/v1/creator/stories/${storyId}/episodes/${episode.id}/content`, {
+          method: "PUT", headers, body: JSON.stringify({ blocks: [{ type: "TEXT",
+            textContent: `Navigation content ${number} ${runId}`, mediaAssetId: null }] }),
+        });
+        if (!content.ok) throw new Error(`Navigation content ${number} returned ${content.status}.`);
+        const published = await fetch(`${api}/api/v1/creator/stories/${storyId}/episodes/${episode.id}/publish`,
+          { method: "POST", headers });
+        if (!published.ok) throw new Error(`Navigation publish ${number} returned ${published.status}.`);
+        created.push(episode);
+      }
+      return { second: created[0], last: created.at(-1) };
+    }, { storyId, runId });
+
     await page.goto(`${baseUrl}/creator/stories`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "＋ สร้างนิยาย" }).click();
     await page.getByLabel("ประเภทเรื่อง").selectOption("COMIC");
@@ -391,6 +444,8 @@ async function run() {
     await page.goto(`${baseUrl}/read-comic/browser-e2e-${runId}/${comicStorySlug}/${comicEpisodeSlug}`,
       { waitUntil: "networkidle" });
     await page.getByTestId("comic-reader").locator("img").waitFor();
+    await page.getByRole("heading", { name: comicEpisodeTitle }).waitFor();
+    await page.getByText(/only available episode/).first().waitFor();
 
     await page.goto(`${baseUrl}/creator/stories`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "＋ สร้างนิยาย" }).click();
@@ -424,6 +479,8 @@ async function run() {
     await page.goto(`${baseUrl}/watch-video/browser-e2e-${runId}/browser-e2e-video-${runId}/video-episode-${runId}`,
       { waitUntil: "networkidle" });
     await page.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]').waitFor();
+    await page.getByRole("heading", { name: videoEpisodeTitle }).waitFor();
+    await page.getByText(/only available episode/).first().waitFor();
 
     const thaiStoryTitle = `นักรบแห่งเงา ${runId}`;
     const thaiSearchFixture = await createSearchFixture(page, {
@@ -432,10 +489,34 @@ async function run() {
 
     // Authenticated reader state: bookmark Stories and retain one Episode-level resume per Story.
     await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`, { waitUntil: "networkidle" });
+    await page.getByText("แสดง 20 จาก 22 ตอน", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "โหลดตอนเพิ่มเติม" }).click();
+    await page.getByText("แสดง 22 จาก 22 ตอน", { exact: true }).waitFor();
+    check(await page.getByText(`Navigation Episode 22 ${runId}`, { exact: false }).count() === 1,
+      "Story Detail pagination duplicated or omitted the final Episode.");
     await page.getByRole("button", { name: "บันทึกเข้าคลัง" }).click();
     await page.getByRole("button", { name: "นำออกจากคลัง" }).waitFor();
-    await page.locator('a[href*="/read-novel/"]').click();
+    await page.locator('a[href*="/read-novel/"]').first().click();
     await page.getByText(testText).waitFor();
+    await page.getByRole("link", { name: /Next: Navigation Episode 2/ }).first().click();
+    await page.getByText(`Navigation content 2 ${runId}`, { exact: true }).waitFor();
+    await page.keyboard.press("ArrowLeft");
+    await page.getByText(testText).waitFor();
+    await page.keyboard.press("ArrowRight");
+    await page.getByText(`Navigation content 2 ${runId}`, { exact: true }).waitFor();
+    await page.getByRole("link", { name: /Back to Story/ }).first().click();
+    await page.getByText("แสดง 20 จาก 22 ตอน", { exact: true }).waitFor();
+
+    await page.goto(`${baseUrl}/read-novel/browser-e2e-${runId}/browser-e2e-story-${runId}/${novelNavigationFixture.last.slug}`,
+      { waitUntil: "networkidle" });
+    await page.getByText(`Navigation content 22 ${runId}`, { exact: true }).waitFor();
+    await page.getByText(/Next unavailable/).first().waitFor();
+
+    await page.goto(`${baseUrl}/history`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "Reading History" }).waitFor();
+    await page.getByText(`Navigation Episode 22 ${runId}`, { exact: false }).waitFor();
+    check(!(await page.locator("body").innerText()).toLowerCase().includes("mock"),
+      "Reading History used a mock fallback.");
 
     await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/${comicStorySlug}`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "บันทึกเข้าคลัง" }).click();
@@ -452,6 +533,84 @@ async function run() {
     check(await page.getByRole("button", { name: "ลบออกจากคลัง" }).count() === 1,
       "Removed Comic bookmark returned after reload.");
     await page.getByRole("link", { name: `Browser E2E Story ${runId}`, exact: true }).waitFor();
+
+    // Reader private-state isolation: real User A requests are held, then aborted by a real JWT User B transition.
+    const readerIsolationUserB = await createSocialUser("reader-isolation-b", `Reader Isolation B ${runId}`);
+    const userASession = await page.evaluate(() => ({
+      accessToken: localStorage.getItem("novelverse_access_token"),
+      refreshToken: localStorage.getItem("novelverse_refresh_token"),
+      accessTokenExpiresAt: localStorage.getItem("novelverse_access_token_expires_at"),
+      refreshTokenExpiresAt: localStorage.getItem("novelverse_refresh_token_expires_at"),
+    }));
+    check(Object.values(userASession).every((value) => typeof value === "string" && value.length > 0),
+      "User A browser session was incomplete before reader-state isolation checks.");
+    const privateReaderRoute = /\/api\/v1\/me\/(?:library|reading-progress)(?:\?|$)/;
+    let holdUserAReaderRequests = true;
+    let releaseUserAReaderRequests;
+    const userAReaderRelease = new Promise((resolve) => { releaseUserAReaderRequests = resolve; });
+    let heldUserAReaderRequests = 0;
+    let confirmUserAReaderRequestsHeld;
+    const userAReaderRequestsHeld = new Promise((resolve) => { confirmUserAReaderRequestsHeld = resolve; });
+    const holdUserAReaderResponse = async (route) => {
+      if (!holdUserAReaderRequests || route.request().headers().authorization !== `Bearer ${userASession.accessToken}`) {
+        await route.continue();
+        return;
+      }
+      heldUserAReaderRequests += 1;
+      if (heldUserAReaderRequests >= 2) confirmUserAReaderRequestsHeld();
+      await userAReaderRelease;
+      await route.continue().catch(() => undefined);
+    };
+    await page.route(privateReaderRoute, holdUserAReaderResponse);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await Promise.race([
+      userAReaderRequestsHeld,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(
+        "Timed out waiting for User A Library private requests to be held.")), 15_000)),
+    ]);
+    holdUserAReaderRequests = false;
+    const userBLibraryResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/v1/me/library" &&
+      response.request().headers().authorization === `Bearer ${readerIsolationUserB.tokens.accessToken}` &&
+      response.status() === 200, { timeout: 15_000 });
+    const userBProgressListResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/v1/me/reading-progress" &&
+      response.request().method() === "GET" &&
+      response.request().headers().authorization === `Bearer ${readerIsolationUserB.tokens.accessToken}` &&
+      response.status() === 200, { timeout: 15_000 });
+    await replaceBrowserSession(page, readerIsolationUserB.tokens);
+    releaseUserAReaderRequests();
+    await Promise.all([userBLibraryResponse, userBProgressListResponse]);
+    await page.unroute(privateReaderRoute, holdUserAReaderResponse);
+    await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor({ state: "detached" });
+    check(!(await page.locator("body").innerText()).includes(`Browser E2E Story ${runId}`),
+      "User A Library rows appeared after the User B session transition.");
+
+    // The same Story/Episode must write for both actors inside one JavaScript module lifetime.
+    await replaceBrowserSession(page, userASession);
+    const originalReaderPath = `/read-novel/browser-e2e-${runId}/browser-e2e-story-${runId}/browser-e2e-episode-${runId}`;
+    const userAProgressWrite = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/v1/me/reading-progress" &&
+      response.request().method() === "PUT" &&
+      response.request().headers().authorization === `Bearer ${userASession.accessToken}` &&
+      response.status() === 200, { timeout: 15_000 });
+    await page.goto(`${baseUrl}${originalReaderPath}`, { waitUntil: "networkidle" });
+    await page.getByText(testText).waitFor();
+    await userAProgressWrite;
+    const progressIsolationWindowStartedAt = Date.now();
+    await replaceBrowserSession(page, readerIsolationUserB.tokens);
+    const userBProgressWrite = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/v1/me/reading-progress" &&
+      response.request().method() === "PUT" &&
+      response.request().headers().authorization === `Bearer ${readerIsolationUserB.tokens.accessToken}` &&
+      response.status() === 200, { timeout: 15_000 });
+    await page.getByRole("link", { name: /Back to Story/ }).first().click();
+    await page.locator(`a[href="${originalReaderPath}"]`).first().click();
+    await page.getByText(testText).waitFor();
+    await userBProgressWrite;
+    check(Date.now() - progressIsolationWindowStartedAt < 5_000,
+      "User A to User B progress isolation did not execute inside the five-second dedupe window.");
+    await replaceBrowserSession(page, userASession);
 
     await page.goto(baseUrl, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "อ่านต่อ" }).waitFor();
@@ -545,7 +704,7 @@ async function run() {
     await page.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
     check(new URL(page.url()).searchParams.get("sort") === "RELEVANCE",
       "Search did not use URL-backed RELEVANCE ordering.");
-    await page.getByText(`ตอนล่าสุด: Browser E2E Episode ${runId}`, { exact: false }).waitFor();
+    await page.getByText(`ตอนล่าสุด: Navigation Episode 22 ${runId}`, { exact: false }).waitFor();
     await page.reload({ waitUntil: "networkidle" });
     check((await page.getByLabel("คำค้นหา").inputValue()).includes(`browser e2e story ${runId}`),
       "Search URL state was not restored after reload.");
@@ -576,10 +735,11 @@ async function run() {
     await page.waitForURL(`**/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`);
     await page.getByText("Browser E2E Creator", { exact: false }).waitFor();
     await page.getByText(`Browser E2E Episode ${runId}`, { exact: false }).waitFor();
-    await page.getByRole("link", { name: "เปิดอ่าน" }).click();
+    await page.getByRole("link", { name: "เปิดอ่าน" }).first().click();
     await page.waitForURL(`**/read-novel/browser-e2e-${runId}/browser-e2e-story-${runId}/browser-e2e-episode-${runId}`);
     await page.getByText(testText).waitFor();
     await page.getByTestId("novel-content-renderer").locator("img").waitFor();
+    await waitForPendingEngagementResponses();
     const novelSession = engagementStarts.filter((item) => item?.targetType === "EPISODE").at(-1);
     check(novelSession, "NOVEL engagement session response was not observed.");
     const novelEngagement = await page.evaluate(async ({ runId }) => {
@@ -608,6 +768,7 @@ async function run() {
     await page.getByText(comicEpisodeTitle, { exact: false }).waitFor();
     await page.getByRole("link", { name: "เปิดอ่าน" }).click();
     await page.getByTestId("comic-reader").locator("img").waitFor();
+    await waitForPendingEngagementResponses();
     check(engagementStarts.filter((item) => item?.targetType === "EPISODE").at(-1),
       "COMIC engagement session response was not observed.");
     const comicEngagement = await page.evaluate(async ({ runId, storySlug, episodeSlug }) => {
@@ -636,6 +797,7 @@ async function run() {
     await page.getByText(videoEpisodeTitle, { exact: false }).waitFor();
     await page.getByRole("link", { name: "เปิดอ่าน" }).click();
     await page.locator('iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]').waitFor();
+    await waitForPendingEngagementResponses();
     const videoSession = engagementStarts.filter((item) => item?.targetType === "EPISODE").at(-1);
     const videoEngagement = await page.evaluate(async ({ episodeId }) => {
       const api = "http://localhost:5039"; const token = localStorage.getItem("novelverse_access_token");
@@ -659,6 +821,7 @@ async function run() {
 
     await page.goto(`${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`, { waitUntil: "networkidle" });
     await page.reload({ waitUntil: "networkidle" });
+    await waitForPendingEngagementResponses();
     check(engagementStarts.some((item) => item?.targetType === "STORY"),
       "Story-detail engagement session was not accepted.");
     check(engagementStarts.filter((item) => item?.targetType === "EPISODE").length >= 3,
@@ -1224,7 +1387,7 @@ async function run() {
     check(!/(popular|trending|recommendation|notification|social feed)/i.test(
       await userCPage.locator("body").innerText()),
     "Out-of-scope Popular, Trending, Recommendation, Notification, or Social Feed UI was rendered.");
-    await userCPage.locator('a[href*="/read-novel/"]').click();
+    await userCPage.locator('a[href*="/read-novel/"]').first().click();
     await userCPage.getByText(testText).waitFor();
 
     const privacyUnlink = await apiCall("/api/v1/dev/social/privacy/unlink", {
@@ -1258,26 +1421,17 @@ async function run() {
 
     const anonymousContext = await browser.newContext({ locale: "th-TH" });
     const anonymousPage = await anonymousContext.newPage();
-    const anonymousStarts = [];
-    anonymousPage.on("response", async (response) => {
-      if (response.request().method() === "POST" &&
-          /\/api\/v1\/engagement\/sessions$/.test(new URL(response.url()).pathname) &&
-          response.ok()) {
-        const body = await response.json().catch(() => null);
-        const requestBody = response.request().postDataJSON();
-        if (body) anonymousStarts.push({ ...body, clientSessionKey: requestBody.clientSessionKey });
-      }
-    });
-    await anonymousPage.goto(
+    const anonymousStarts = await collectExpectedEngagementStarts(anonymousPage, async () => {
+      await anonymousPage.goto(
       `${baseUrl}/stories/browser-e2e-${runId}/browser-e2e-story-${runId}`,
       { waitUntil: "networkidle" });
     await anonymousPage.getByText(`Browser E2E Story ${runId}`, { exact: true }).waitFor();
-    await anonymousPage.getByRole("link", { name: "เปิดอ่าน" }).click();
+    await anonymousPage.getByRole("link", { name: "เปิดอ่าน" }).first().click();
     await anonymousPage.getByText(testText).waitFor();
-    const anonymousStorySession = anonymousStarts.find((item) => item.targetType === "STORY");
-    const anonymousEpisodeSession = anonymousStarts.find((item) => item.targetType === "EPISODE");
-    check(anonymousStorySession && anonymousEpisodeSession,
-      "Anonymous Story and Episode sessions were not both accepted.");
+    await anonymousPage.waitForLoadState("networkidle");
+    });
+    const anonymousStorySession = anonymousStarts.STORY;
+    const anonymousEpisodeSession = anonymousStarts.EPISODE;
     const anonymousVerification = await anonymousPage.evaluate(async (sessionId) =>
       fetch(`http://localhost:5039/api/v1/dev/engagement/sessions/${sessionId}/verification`,
         { credentials: "include" }).then((response) => response.json()), anonymousStorySession.sessionId);
@@ -1458,8 +1612,16 @@ async function run() {
       unicodeReaderReloadVerified: true,
       unicodeSingleEncodingVerified: true,
       publicReaderRoutingVerified: true,
+      readerNavigationPaginationVerified: true,
+      readerNavigationVisibleControlsVerified: true,
+      readerNavigationKeyboardVerified: true,
+      readerNavigationFirstLastBoundariesVerified: true,
+      readerNavigationBackToStoryVerified: true,
+      readingHistoryVerified: true,
       readerLibraryVerified: true,
       readingProgressVerified: true,
+      readerLibrarySessionIsolationVerified: true,
+      readingProgressSessionIsolationVerified: true,
       engagementSessionStartsVerified: true,
       engagementStoryDeduplicationVerified: true,
       engagementVideoNoFalseCompletionVerified: true,

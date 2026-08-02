@@ -1,9 +1,8 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
-import { apiErrorMessage, getPublicStory, getPublicVideoContent } from "@/features/novel-editor/api";
+import { use, useCallback, useEffect } from "react";
+import { getPublicVideoContent } from "@/features/novel-editor/api";
 import type { VideoContent } from "@/features/novel-editor/types";
-import { recordEpisodeProgress } from "@/features/reader-state/progress";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
 import { EngagementSessionController } from "@/features/engagement/controller";
 import { unsupportedVideoEvidence } from "@/features/engagement/evidence";
@@ -11,6 +10,7 @@ import {
   decodeRouteSegmentOnce,
   ROUTE_SEGMENT_UNAVAILABLE_MESSAGE,
 } from "@/lib/routeSegments";
+import { ReaderFrame } from "@/features/reader-navigation/ReaderFrame";
 
 type ReaderSlugs = { creatorSlug: string; storySlug: string; episodeSlug: string };
 
@@ -28,18 +28,18 @@ export default function VideoReaderPage({ params }: {
 }
 
 function VideoReader({ creatorSlug, storySlug, episodeSlug }: ReaderSlugs) {
-  const [content, setContent] = useState<VideoContent | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    Promise.all([
-      getPublicVideoContent(creatorSlug, storySlug, episodeSlug),
-      getPublicStory(creatorSlug, storySlug),
-    ]).then(([video, story]) => {
-      setContent(video);
-      void recordEpisodeProgress(story.id, video.episodeId);
-    })
-      .catch((reason) => setError(apiErrorMessage(reason)));
-  }, [creatorSlug, storySlug, episodeSlug]);
+  const load = useCallback((signal: AbortSignal) =>
+    getPublicVideoContent(creatorSlug, storySlug, episodeSlug, signal),
+  [creatorSlug, episodeSlug, storySlug]);
+  return <ReaderFrame key={`${creatorSlug}/${storySlug}/${episodeSlug}`}
+    slugs={{ creatorSlug, storySlug, episodeSlug }} storyType="VIDEO" loadContent={load}
+    episodeId={(content) => content.episodeId}
+    renderContent={(content) => <VideoEpisodeContent content={content} />}
+    renderReport={(content) => <ReportDialog targetType="EPISODE" targetId={content.episodeId}
+      targetSummary={episodeSlug} />} />;
+}
+
+function VideoEpisodeContent({ content }: { content: VideoContent }) {
   useEffect(() => {
     if (!content) return;
     // youtube-nocookie iframe is not currently wired to the official Player API.
@@ -49,13 +49,9 @@ function VideoReader({ creatorSlug, storySlug, episodeSlug }: ReaderSlugs) {
       unsupportedVideoEvidence);
     void controller.start(); return () => { void controller.stop(); };
   }, [content]);
-  if (error) return <main><p role="alert">{error}</p></main>;
-  if (!content) return <main><p>กำลังโหลด…</p></main>;
-  return <main>
-    <h1>{content.title ?? "Video"}</h1>
+  return <section data-reader-shortcuts="off">
     <iframe width="560" height="315" src={`https://www.youtube-nocookie.com/embed/${content.videoId}`}
       title={content.title ?? "YouTube video player"} allowFullScreen
       allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
-    <ReportDialog targetType="EPISODE" targetId={content.episodeId} targetSummary={episodeSlug} />
-  </main>;
+  </section>;
 }
