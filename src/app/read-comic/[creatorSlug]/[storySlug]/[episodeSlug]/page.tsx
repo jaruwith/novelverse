@@ -1,9 +1,8 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
-import { getPublicComicPages, getPublicStory } from "@/features/novel-editor/api";
-import type { ComicPage } from "@/features/novel-editor/types";
-import { recordEpisodeProgress } from "@/features/reader-state/progress";
+import { use, useCallback, useEffect } from "react";
+import { getPublicComicPages } from "@/features/novel-editor/api";
+import type { ComicPagesResponse } from "@/features/novel-editor/types";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
 import { EngagementSessionController } from "@/features/engagement/controller";
 import { buildOrderedContentEvidence } from "@/features/engagement/evidence";
@@ -11,6 +10,7 @@ import {
   decodeRouteSegmentOnce,
   ROUTE_SEGMENT_UNAVAILABLE_MESSAGE,
 } from "@/lib/routeSegments";
+import { ReaderFrame } from "@/features/reader-navigation/ReaderFrame";
 
 type ReaderSlugs = { creatorSlug: string; storySlug: string; episodeSlug: string };
 
@@ -28,19 +28,19 @@ export default function ComicReader({ params }: {
 }
 
 function ComicReaderContent({ creatorSlug, storySlug, episodeSlug }: ReaderSlugs) {
-  const [pages, setPages] = useState<ComicPage[]>([]);
-  const [episodeId, setEpisodeId] = useState("");
-  const [error, setError] = useState("");
-  useEffect(() => {
-    Promise.all([
-      getPublicComicPages(creatorSlug, storySlug, episodeSlug),
-      getPublicStory(creatorSlug, storySlug),
-    ]).then(([result, story]) => {
-      setPages(result.pages);
-      setEpisodeId(result.episodeId);
-      void recordEpisodeProgress(story.id, result.episodeId);
-    }).catch(() => setError("ไม่พบหน้าการ์ตูน"));
-  }, [creatorSlug, storySlug, episodeSlug]);
+  const load = useCallback((signal: AbortSignal) =>
+    getPublicComicPages(creatorSlug, storySlug, episodeSlug, signal),
+  [creatorSlug, episodeSlug, storySlug]);
+  return <ReaderFrame key={`${creatorSlug}/${storySlug}/${episodeSlug}`}
+    slugs={{ creatorSlug, storySlug, episodeSlug }} storyType="COMIC" loadContent={load}
+    episodeId={(content) => content.episodeId}
+    renderContent={(content) => <ComicEpisodeContent content={content} />}
+    renderReport={(content) => <ReportDialog targetType="EPISODE" targetId={content.episodeId}
+      targetSummary={episodeSlug} />} />;
+}
+
+function ComicEpisodeContent({ content }: { content: ComicPagesResponse }) {
+  const { episodeId, pages } = content;
   useEffect(() => {
     if (!episodeId || !pages.length) return;
     const evidence = () => {
@@ -51,12 +51,9 @@ function ComicReaderContent({ creatorSlug, storySlug, episodeSlug }: ReaderSlugs
     const controller = new EngagementSessionController({ targetType: "EPISODE", targetId: episodeId }, evidence);
     void controller.start(); return () => { void controller.stop(); };
   }, [episodeId, pages]);
-  if (error) return <main role="alert">{error}</main>;
-  return <main className="comicCanvas" data-testid="comic-reader">
+  return <section className="comicCanvas" data-testid="comic-reader">
     {pages.map((page, index) =>
       // eslint-disable-next-line @next/next/no-img-element
       <img key={page.id} src={page.mediaUrl} alt={`หน้าการ์ตูน ${index + 1}`} />)}
-    {episodeId &&
-      <ReportDialog targetType="EPISODE" targetId={episodeId} targetSummary={episodeSlug} />}
-  </main>;
+  </section>;
 }

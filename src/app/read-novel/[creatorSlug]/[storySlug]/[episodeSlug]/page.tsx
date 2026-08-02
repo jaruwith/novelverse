@@ -1,10 +1,9 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
-import { apiErrorMessage, getPublicNovelContent, getPublicStory } from "@/features/novel-editor/api";
+import { use, useCallback, useEffect } from "react";
+import { getPublicNovelContent } from "@/features/novel-editor/api";
 import { NovelContentRenderer } from "@/features/novel-editor/NovelContentRenderer";
 import type { EditorBlock } from "@/features/novel-editor/types";
-import { recordEpisodeProgress } from "@/features/reader-state/progress";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
 import { EngagementSessionController } from "@/features/engagement/controller";
 import { buildOrderedContentEvidence } from "@/features/engagement/evidence";
@@ -12,6 +11,7 @@ import {
   decodeRouteSegmentOnce,
   ROUTE_SEGMENT_UNAVAILABLE_MESSAGE,
 } from "@/lib/routeSegments";
+import { ReaderFrame } from "@/features/reader-navigation/ReaderFrame";
 
 type ReaderSlugs = { creatorSlug: string; storySlug: string; episodeSlug: string };
 
@@ -29,20 +29,19 @@ export default function NovelReaderPage({ params }: {
 }
 
 function NovelReader({ creatorSlug, storySlug, episodeSlug }: ReaderSlugs) {
-  const [blocks, setBlocks] = useState<EditorBlock[] | null>(null);
-  const [error, setError] = useState("");
-  const [episodeId, setEpisodeId] = useState("");
-  useEffect(() => {
-    Promise.all([
-      getPublicNovelContent(creatorSlug, storySlug, episodeSlug),
-      getPublicStory(creatorSlug, storySlug),
-    ]).then(([content, story]) => {
-      setBlocks(content.blocks);
-      setEpisodeId(content.episodeId);
-      void recordEpisodeProgress(story.id, content.episodeId);
-    })
-      .catch((reason) => setError(apiErrorMessage(reason)));
-  }, [creatorSlug, episodeSlug, storySlug]);
+  const load = useCallback((signal: AbortSignal) =>
+    getPublicNovelContent(creatorSlug, storySlug, episodeSlug, signal),
+  [creatorSlug, episodeSlug, storySlug]);
+  return <ReaderFrame key={`${creatorSlug}/${storySlug}/${episodeSlug}`}
+    slugs={{ creatorSlug, storySlug, episodeSlug }} storyType="NOVEL" loadContent={load}
+    episodeId={(content) => content.episodeId}
+    renderContent={(content) => <NovelEpisodeContent content={content} />}
+    renderReport={(content) => <ReportDialog targetType="EPISODE" targetId={content.episodeId}
+      targetSummary={episodeSlug} />} />;
+}
+
+function NovelEpisodeContent({ content }: { content: { episodeId: string; wordCount: number; blocks: EditorBlock[] } }) {
+  const { blocks, episodeId } = content;
   useEffect(() => {
     if (!episodeId || !blocks?.length) return;
     const evidence = () => {
@@ -53,8 +52,5 @@ function NovelReader({ creatorSlug, storySlug, episodeSlug }: ReaderSlugs) {
     const controller = new EngagementSessionController({ targetType: "EPISODE", targetId: episodeId }, evidence);
     void controller.start(); return () => { void controller.stop(); };
   }, [blocks, episodeId]);
-  if (error) return <main className="reader"><p role="alert">{error}</p></main>;
-  if (!blocks) return <main className="reader"><p role="status">กำลังโหลดเนื้อหา…</p></main>;
-  return <main className="reader" data-testid="novel-reader"><NovelContentRenderer blocks={blocks} />
-    {episodeId && <ReportDialog targetType="EPISODE" targetId={episodeId} targetSummary={episodeSlug} />}</main>;
+  return <section data-testid="novel-reader"><NovelContentRenderer blocks={blocks} /></section>;
 }

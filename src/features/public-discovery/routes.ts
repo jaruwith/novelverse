@@ -2,6 +2,10 @@ import type { StoryType } from "@/features/novel-editor/types";
 
 const segment = encodeURIComponent;
 
+export function resolvePublicStoryHref(creatorSlug: string, storySlug: string) {
+  return `/stories/${segment(creatorSlug)}/${segment(storySlug)}`;
+}
+
 export function resolvePublicEpisodeHref(
   storyType: StoryType,
   creatorSlug: string,

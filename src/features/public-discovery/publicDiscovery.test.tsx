@@ -131,11 +131,57 @@ describe("public Story Detail", () => {
     });
     expect(await screen.findByRole("heading", { name: thaiStory.title })).toBeInTheDocument();
     expect(api.getPublicStory).toHaveBeenCalledWith("local-creator", "test-นิยาย");
-    expect(api.listPublicEpisodes).toHaveBeenCalledWith("local-creator", "test-นิยาย");
+    expect(api.listPublicEpisodes).toHaveBeenCalledWith("local-creator", "test-นิยาย", 1, 20);
     expect(screen.getByRole("link", { name: "เปิดอ่าน" })).toHaveAttribute(
       "href",
       "/read-novel/local-creator/test-%E0%B8%99%E0%B8%B4%E0%B8%A2%E0%B8%B2%E0%B8%A2/episode-one",
     );
+  });
+
+  it("loads Episodes in bounded pages without duplicates and reports partial totals accurately", async () => {
+    const episodes = Array.from({ length: 21 }, (_, index) => ({
+      id: `episode-${index + 1}`, title: `Episode ${index + 1}`, slug: `ตอน-${index + 1}`,
+      episodeNumber: index + 1, sortOrder: index + 1, visibility: "PUBLIC" as const,
+      synopsis: null, publishedAt: "2026-07-02T00:00:00Z", updatedAt: "2026-07-02T00:00:00Z",
+      wordCount: 100,
+    }));
+    vi.mocked(api.listPublicEpisodes)
+      .mockResolvedValueOnce({ items: episodes.slice(0, 20), page: 1, pageSize: 20, totalItems: 21,
+        totalPages: 2, hasPreviousPage: false, hasNextPage: true })
+      .mockResolvedValueOnce({ items: [episodes[19], episodes[20]], page: 2, pageSize: 20, totalItems: 21,
+        totalPages: 2, hasPreviousPage: true, hasNextPage: false });
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    expect(await screen.findByText("แสดง 20 จาก 21 ตอน")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "โหลดตอนเพิ่มเติม" }));
+    expect(await screen.findByText("แสดง 21 จาก 21 ตอน")).toBeInTheDocument();
+    expect(screen.getAllByText("20. Episode 20")).toHaveLength(1);
+    expect(api.listPublicEpisodes).toHaveBeenLastCalledWith("creator-one", "real-api-story", 2, 20);
+    expect(screen.getAllByRole("link", { name: "เปิดอ่าน" })[20].getAttribute("href")).toContain("%E0");
+  });
+
+  it("retries only the failed incremental Episode page without discarding the first page", async () => {
+    const episodes = Array.from({ length: 21 }, (_, index) => ({
+      id: `retry-episode-${index + 1}`, title: `Retry Episode ${index + 1}`, slug: `retry-${index + 1}`,
+      episodeNumber: index + 1, sortOrder: index + 1, visibility: "PUBLIC" as const,
+      synopsis: null, publishedAt: "2026-07-02T00:00:00Z", updatedAt: "2026-07-02T00:00:00Z",
+      wordCount: 100,
+    }));
+    vi.mocked(api.listPublicEpisodes)
+      .mockResolvedValueOnce({ items: episodes.slice(0, 20), page: 1, pageSize: 20, totalItems: 21,
+        totalPages: 2, hasPreviousPage: false, hasNextPage: true })
+      .mockRejectedValueOnce(new Error("page two offline"))
+      .mockResolvedValueOnce({ items: [episodes[20]], page: 2, pageSize: 20, totalItems: 21,
+        totalPages: 2, hasPreviousPage: true, hasNextPage: false });
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    expect(await screen.findByText(/^1\. Retry Episode 1$/)).toBeInTheDocument();
+    const initialButtons = screen.getAllByRole("button");
+    fireEvent.click(initialButtons.find((button) => !["Like", "Follow"].includes(button.textContent ?? ""))!);
+    const incrementalError = await screen.findByRole("alert");
+    expect(screen.getByText(/^1\. Retry Episode 1$/)).toBeInTheDocument();
+    fireEvent.click(incrementalError.querySelector("button")!);
+    expect(await screen.findByText(/^21\. Retry Episode 21$/)).toBeInTheDocument();
+    expect(api.listPublicEpisodes).toHaveBeenNthCalledWith(2, "creator-one", "real-api-story", 2, 20);
+    expect(api.listPublicEpisodes).toHaveBeenNthCalledWith(3, "creator-one", "real-api-story", 2, 20);
   });
 
   it("fails malformed route encoding safely without issuing Story requests", async () => {

@@ -16,6 +16,11 @@ import { EngagementSessionController } from "@/features/engagement/controller";
 export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; storySlug: string }) {
   const [story, setStory] = useState<PublicStory | null>(null);
   const [episodes, setEpisodes] = useState<PublicEpisode[]>([]);
+  const [episodePage, setEpisodePage] = useState(1);
+  const [episodeTotal, setEpisodeTotal] = useState(0);
+  const [hasMoreEpisodes, setHasMoreEpisodes] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [retryKey, setRetryKey] = useState(0);
@@ -45,11 +50,14 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
     let active = true;
     Promise.all([
         getPublicStory(creatorSlug, storySlug),
-        listPublicEpisodes(creatorSlug, storySlug),
+        listPublicEpisodes(creatorSlug, storySlug, 1, 20),
       ]).then(([storyResult, episodeResult]) => {
       if (!active) return;
       setStory(storyResult);
       setEpisodes(episodeResult.items);
+      setEpisodePage(episodeResult.page);
+      setEpisodeTotal(episodeResult.totalItems);
+      setHasMoreEpisodes(episodeResult.hasNextPage);
     }).catch((reason) => {
       if (!active) return;
       setError(apiErrorMessage(reason));
@@ -59,6 +67,26 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
     });
     return () => { active = false; };
   }, [creatorSlug, retryKey, storySlug]);
+
+  async function loadMoreEpisodes() {
+    if (loadingMore || !hasMoreEpisodes) return;
+    setLoadingMore(true);
+    setMoreError("");
+    try {
+      const result = await listPublicEpisodes(creatorSlug, storySlug, episodePage + 1, 20);
+      setEpisodes((current) => {
+        const existing = new Set(current.map((episode) => episode.id));
+        return [...current, ...result.items.filter((episode) => !existing.has(episode.id))];
+      });
+      setEpisodePage(result.page);
+      setEpisodeTotal(result.totalItems);
+      setHasMoreEpisodes(result.hasNextPage);
+    } catch (reason) {
+      setMoreError(apiErrorMessage(reason));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
   useEffect(() => {
     if (!story || !authenticated) return;
     listLibrary(1, 100).then((result) => {
@@ -220,6 +248,7 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
       </section>
       <section className={styles.episodes}>
         <h2>ตอนที่เผยแพร่</h2>
+        <p role="status">แสดง {episodes.length} จาก {episodeTotal} ตอน</p>
         {!episodes.length && <p>เรื่องนี้ยังไม่มีตอนที่เผยแพร่</p>}
         {episodes.map((episode) => {
           const href = resolvePublicEpisodeHref(story.storyType, creatorSlug, storySlug, episode.slug);
@@ -229,6 +258,12 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
             {href ? <Link className="primaryButton" href={href}>เปิดอ่าน</Link> : <span role="alert">ไม่รองรับประเภทเรื่องนี้</span>}
           </article>;
         })}
+        {moreError && <div role="alert"><p>{moreError}</p>
+          <button type="button" onClick={() => void loadMoreEpisodes()}>ลองโหลดตอนเพิ่มเติมอีกครั้ง</button></div>}
+        {hasMoreEpisodes && !moreError && <button type="button" disabled={loadingMore}
+          onClick={() => void loadMoreEpisodes()}>
+          {loadingMore ? "กำลังโหลดตอนเพิ่มเติม…" : "โหลดตอนเพิ่มเติม"}
+        </button>}
       </section>
     </main>
   );

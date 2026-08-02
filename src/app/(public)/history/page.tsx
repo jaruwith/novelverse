@@ -1,2 +1,5 @@
-"use client"; import Link from "next/link"; import { ConfirmButton } from "@/components/Content"; import { useRole } from "@/components/RoleProvider"; import { publicStories } from "@/lib/mockData";
-export default function Page(){const {role}=useRole();if(role==="guest")return <div className="statePage"><h1>ประวัติการอ่านสำหรับสมาชิก</h1><p>เข้าสู่ระบบเพื่อจำตอนล่าสุดของแต่ละเรื่องและอ่านต่อข้ามอุปกรณ์ในอนาคต</p><Link className="primaryButton" href="/login">เข้าสู่ระบบ</Link></div>;return <div className="container narrow"><div className="sectionTitle"><div><span className="eyebrow">คลังส่วนตัว</span><h1>ประวัติการอ่าน</h1></div><ConfirmButton/></div><div className="panel">{publicStories.slice(0,5).map((s,i)=><div className="sectionTitle" key={s.id}><div><strong>{s.title}</strong><p className="muted">อ่านล่าสุด ตอนที่ {i+1} · {i===0?"วันนี้":"เมื่อ "+(i+1)+" วันที่แล้ว"}</p></div><Link className="secondaryButton" href={s.type==="COMIC"?`/comic/${s.slug}/chapter/${i+1}`:`/story/${s.slug}/chapter/${i+1}`}>อ่านต่อ</Link></div>)}</div></div>}
+import { HistoryPage } from "@/features/reader-state/HistoryPage";
+
+export default function Page() {
+  return <HistoryPage />;
+}
