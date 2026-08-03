@@ -23,7 +23,7 @@ const report = {
   targetId: "target-secret-id", reason: "SPAM" as const, comment: "<script>alert(1)</script>",
   status: "OPEN" as const, assignedModeratorUserId: null, resolutionNote: null,
   createdAt: "2026-07-28T00:00:00Z", updatedAt: "2026-07-28T00:00:00Z",
-  reviewedAt: null, resolvedAt: null,
+  reviewedAt: null, resolvedAt: null, commentEvidence: null,
 };
 const page = { items: [report], page: 1, pageSize: 20, totalItems: 1, totalPages: 1,
   hasPreviousPage: false, hasNextPage: false };
@@ -100,7 +100,7 @@ describe("moderator queue", () => {
     api.getCurrentUser.mockResolvedValue({ role: "USER" });
     render(<ModeratorQueue />);
     expect(await screen.findByRole("alert")).toHaveTextContent("ไม่มีสิทธิ์");
-    expect(screen.queryByRole("button", { name: "ซ่อนและปิดรายงาน" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hide and close report" })).not.toBeInTheDocument();
     expect(api.listModerationReports).not.toHaveBeenCalled();
   });
 
@@ -109,7 +109,7 @@ describe("moderator queue", () => {
     api.listModerationReports.mockImplementationOnce(() =>
       new Promise((resolve) => { release = resolve; }));
     const view = render(<ModeratorQueue />);
-    expect(screen.getByRole("status")).toHaveTextContent("กำลังโหลด");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading reports");
     await waitFor(() => expect(release).toBeTypeOf("function"));
     release(page);
     expect(await screen.findByText("<script>alert(1)</script>")).toBeInTheDocument();
@@ -118,29 +118,29 @@ describe("moderator queue", () => {
 
     api.listModerationReports.mockResolvedValueOnce({ ...page, items: [], totalItems: 0, totalPages: 0 });
     const empty = render(<ModeratorQueue />);
-    expect(await screen.findByText("ไม่มีรายงาน")).toBeInTheDocument();
+    expect(await screen.findByText("No reports.")).toBeInTheDocument();
     empty.unmount();
 
     api.listModerationReports.mockRejectedValueOnce(new ApiError(0, { detail: "ระบบไม่พร้อม" }))
       .mockResolvedValueOnce(page);
     render(<ModeratorQueue />);
     expect(await screen.findByText("ระบบไม่พร้อม")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "ลองอีกครั้ง" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("STORY · SPAM")).toBeInTheDocument();
   });
 
   it("serializes filters, ordering, paging, review and dismissal", async () => {
     render(<ModeratorQueue />);
     await screen.findByText("STORY · SPAM");
-    fireEvent.change(screen.getByLabelText("สถานะ"), { target: { value: "OPEN" } });
-    fireEvent.change(screen.getByLabelText("ประเภทเป้าหมาย"), { target: { value: "STORY" } });
-    fireEvent.change(screen.getByLabelText("การเรียง"), { target: { value: "OLDEST" } });
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "OPEN" } });
+    fireEvent.change(screen.getByLabelText("Target type"), { target: { value: "STORY" } });
+    fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "OLDEST" } });
     await waitFor(() => expect(api.listModerationReports).toHaveBeenLastCalledWith({
-      status: "OPEN", targetType: "STORY", sort: "OLDEST", page: 1,
+      status: "OPEN", targetType: "STORY", sort: "OLDEST", page: 1, signal: expect.any(AbortSignal),
     }));
-    fireEvent.click(screen.getByRole("button", { name: "เริ่มตรวจสอบ" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start review" }));
     await waitFor(() => expect(api.updateModerationWorkflow).toHaveBeenCalledWith("report-1", "UNDER_REVIEW"));
-    fireEvent.click(screen.getByRole("button", { name: "ยกเลิก" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(api.updateModerationWorkflow).toHaveBeenCalledWith("report-1", "DISMISSED"));
   });
 
@@ -150,11 +150,30 @@ describe("moderator queue", () => {
       .mockResolvedValueOnce({ targetType: "STORY", targetId: report.targetId, state: "VISIBLE" });
     render(<ModeratorQueue />);
     await screen.findByText("STORY · SPAM");
-    fireEvent.click(screen.getByRole("button", { name: "ซ่อนและปิดรายงาน" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide and close report" }));
     expect(await screen.findByText("สถานะถูกเปลี่ยนแล้ว")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "คืนค่าเป้าหมาย" }));
-    await waitFor(() => expect(api.moderateTarget).toHaveBeenLastCalledWith("restore", {
-      targetType: "STORY", targetId: "target-secret-id", reasonCode: "SPAM",
-    }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore target" }));
+    await waitFor(() => expect(api.moderateTarget).toHaveBeenLastCalledWith("restore",
+      expect.objectContaining({ targetType: "STORY", targetId: "target-secret-id", reasonCode: "SPAM",
+        operationId: expect.any(String) })));
+  });
+
+  it("renders COMMENT evidence as literal restricted text with lifecycle distinction", async () => {
+    api.listModerationReports.mockResolvedValueOnce({ ...page, items: [{ ...report,
+      targetType: "COMMENT", reporterUserId: null, commentEvidence: {
+        commentId: "11111111-1111-4111-8111-111111111111",
+        bodySnapshot: "<script>report-time text</script>", isSpoiler: true,
+        commentCreatedAt: "2026-08-03T00:00:00Z", commentEditedAt: null,
+        evidenceCreatedAt: "2026-08-03T00:01:00Z", integrityHash: "base64",
+        currentState: "DELETED", currentVersion: 3,
+      },
+    }] });
+    render(<ModeratorQueue />);
+    expect(await screen.findByText("COMMENT · SPAM")).toBeInTheDocument();
+    expect(screen.getByText("<script>report-time text</script>")).toBeInTheDocument();
+    expect(document.querySelector("script")).toBeNull();
+    expect(screen.getByText("Current state: DELETED")).toBeInTheDocument();
+    expect(screen.getByText("Whole-body spoiler at report time")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Comment" })).toBeInTheDocument();
   });
 });

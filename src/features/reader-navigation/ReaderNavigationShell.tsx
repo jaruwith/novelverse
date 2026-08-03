@@ -12,6 +12,7 @@ type Props = {
   retryNavigation: () => void;
   children: React.ReactNode;
   report?: React.ReactNode;
+  discussion?: React.ReactNode;
 };
 
 function ignoresReaderShortcut(event: KeyboardEvent) {
@@ -22,7 +23,7 @@ function ignoresReaderShortcut(event: KeyboardEvent) {
   ));
 }
 
-export function ReaderNavigationShell({ navigation, navigationState, retryNavigation, children, report }: Props) {
+export function ReaderNavigationShell({ navigation, navigationState, retryNavigation, children, report, discussion }: Props) {
   const router = useRouter();
   const heading = useRef<HTMLHeadingElement>(null);
   const previousHref = useMemo(() => navigation?.previousEpisode
@@ -82,5 +83,6 @@ export function ReaderNavigationShell({ navigation, navigationState, retryNaviga
     {children}
     {navigation && controls}
     {report}
+    {discussion}
   </main>;
 }

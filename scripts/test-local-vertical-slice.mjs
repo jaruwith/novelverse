@@ -5,6 +5,10 @@ import fs from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { deflateSync } from "node:zlib";
 import { collectExpectedEngagementStarts } from "./engagement-response-collector.mjs";
+import {
+  createCommunityE2EEvidenceState,
+  requireSuccessfulCommunityEvidence,
+} from "./community-e2e-evidence.mjs";
 
 const baseUrl = "http://localhost:3000";
 const apiUrl = "http://localhost:5039";
@@ -17,18 +21,461 @@ function check(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function apiCall(route, { token, method = "GET", body } = {}) {
+async function apiCall(route, { token, method = "GET", body, headers = {} } = {}) {
   const response = await fetch(`${apiUrl}${route}`, {
     method,
     headers: {
       Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body ? { "Content-Type": "application/json" } : {}),
+      ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
   const content = response.status === 204 ? null : await response.json().catch(() => null);
   return { response, content };
+}
+
+function assertCommentCapabilities(comment, { owned, editable, deletable }) {
+  check(comment.isOwnedByViewer === owned, `Comment ${comment.id} ownership capability was incorrect.`);
+  check(comment.canEdit === editable, `Comment ${comment.id} edit capability was incorrect.`);
+  check(comment.canDelete === deletable, `Comment ${comment.id} delete capability was incorrect.`);
+  check((comment.editTag !== null) === (editable || deletable),
+    `Comment ${comment.id} editTag availability contradicted its capabilities.`);
+  check(!("authorUserId" in comment) && !("userId" in comment),
+    `Comment ${comment.id} exposed an internal user identifier.`);
+}
+
+async function runCommunityDiscussionE2E(browser, fixture) {
+  const {
+    storyPath, storyRoute, novelRoute, comicRoute, videoRoute,
+    creator, userB, userC, paginationUsers,
+  } = fixture;
+  const communityStartedAt = Date.now();
+  const evidenceState = createCommunityE2EEvidenceState();
+  const contexts = [];
+  const openPage = async (tokens) => {
+    const context = await browser.newContext({ locale: "th-TH", viewport: { width: 390, height: 844 } });
+    contexts.push(context);
+    await context.route(`${apiUrl}/api/v1/engagement/**`, (route) => route.abort("blockedbyclient"));
+    const communityPage = await context.newPage();
+    if (tokens) await setBrowserSession(communityPage, tokens);
+    return communityPage;
+  };
+  const createThroughApi = async (route, user, body, isSpoiler = false, key = crypto.randomUUID()) => {
+    const result = await apiCall(route, {
+      token: user.tokens.accessToken, method: "POST", body: { body, isSpoiler },
+      headers: { "Idempotency-Key": key, Origin: baseUrl },
+    });
+    check(result.response.status === 201 || result.response.status === 200,
+      `Community create returned ${result.response.status} for ${body}.`);
+    assertCommentCapabilities(result.content, { owned: true, editable: true, deletable: true });
+    check(result.response.headers.get("cache-control")?.includes("no-store"),
+      "Community create did not return no-store.");
+    check(result.response.headers.get("etag") === result.content.editTag,
+      "Community create ETag did not match editTag.");
+    return result;
+  };
+
+  try {
+    const anonymousPage = await openPage();
+    await anonymousPage.goto(`${baseUrl}${storyPath}`, { waitUntil: "networkidle" });
+    const anonymousDiscussion = anonymousPage.getByRole("region", { name: "Discussion" });
+    await anonymousDiscussion.getByText("No Comments yet. Start the discussion.").waitFor();
+    check(await anonymousDiscussion.getByRole("textbox", { name: "Write a Comment" }).count() === 0,
+      "Anonymous Community viewer received a write composer.");
+    check((await anonymousDiscussion.getByRole("link", { name: "Sign in" }).getAttribute("href"))
+      ?.includes(encodeURIComponent(storyPath)), "Community sign-in action lost its safe return route.");
+
+    const creatorPage = await openPage(creator.tokens);
+    await creatorPage.goto(`${baseUrl}${storyPath}`, { waitUntil: "networkidle" });
+    const creatorDiscussion = creatorPage.getByRole("region", { name: "Discussion" });
+    const thaiRootBody = `ความคิดเห็นภาษาไทย 🙂 ${runId}\n&lt;ยังเป็นข้อความ&gt;`;
+    const rootCreateResponse = creatorPage.waitForResponse((response) =>
+      response.request().method() === "POST" && new URL(response.url()).pathname === storyRoute);
+    const rootComposer = creatorDiscussion.getByRole("form", { name: "Write a Comment" });
+    await rootComposer.getByRole("textbox").fill(thaiRootBody);
+    await rootComposer.getByRole("button", { name: "Submit" }).click();
+    const createdRootResponse = await rootCreateResponse;
+    check(createdRootResponse.status() === 201, "Community root UI create was not accepted.");
+    const createdRoot = await createdRootResponse.json();
+    assertCommentCapabilities(createdRoot, { owned: true, editable: true, deletable: true });
+    await creatorDiscussion.getByText(thaiRootBody, { exact: true }).waitFor();
+    await creatorPage.reload({ waitUntil: "networkidle" });
+    await creatorPage.getByText(thaiRootBody, { exact: true }).waitFor();
+
+    const replayKey = crypto.randomUUID();
+    const replayBody = `Idempotent replay ${runId}`;
+    const firstReplay = await createThroughApi(storyRoute, creator, replayBody, false, replayKey);
+    const replay = await createThroughApi(storyRoute, creator, replayBody, false, replayKey);
+    check(firstReplay.response.status === 201 && firstReplay.response.headers.get("idempotent-replay") === "false" &&
+      replay.response.status === 200 && replay.response.headers.get("idempotent-replay") === "true" &&
+      replay.content.id === firstReplay.content.id,
+    "Community Idempotency-Key replay did not preserve the server projection.");
+
+    await creatorPage.reload({ waitUntil: "networkidle" });
+    const spoilerBody = `Spoiler secret ${runId}`;
+    const spoilerForm = creatorPage.getByRole("form", { name: "Write a Comment" });
+    await spoilerForm.getByRole("textbox").fill(spoilerBody);
+    await spoilerForm.getByRole("checkbox").check();
+    await spoilerForm.getByRole("button", { name: "Submit" }).click();
+    const reveal = creatorPage.getByRole("button", { name: "Reveal spoiler" });
+    await reveal.waitFor();
+    check(await creatorPage.getByText(spoilerBody, { exact: true }).count() === 0,
+      "Spoiler body was present before reveal.");
+    await reveal.press("Enter");
+    await creatorPage.getByText(spoilerBody, { exact: true }).waitFor();
+
+    const novelBody = `NOVEL Episode discussion ${runId}`;
+    await createThroughApi(novelRoute, creator, novelBody);
+    const userBRootBodies = Array.from({ length: 4 }, (_, index) => `User B root ${index + 1} ${runId}`);
+    const userBRoots = [];
+    const reply = await createThroughApi(`/api/v1/comments/${createdRoot.id}/replies`, userB,
+      `Reply from User B ${runId}`);
+    for (const body of userBRootBodies) userBRoots.push((await createThroughApi(storyRoute, userB, body)).content);
+    const comicBody = `COMIC Episode discussion ${runId}`;
+    const videoBody = `VIDEO Episode discussion ${runId}`;
+    const userCRoots = [];
+    for (let index = 1; index <= 3; index += 1)
+      userCRoots.push((await createThroughApi(storyRoute, userC, `User C root ${index} ${runId}`)).content);
+    await createThroughApi(comicRoute, userC, comicBody);
+    await createThroughApi(videoRoute, userC, videoBody);
+    for (const user of paginationUsers) {
+      for (let index = 1; index <= 3; index += 1)
+        await createThroughApi(storyRoute, user, `Pagination ${user.id} ${index} ${runId}`);
+    }
+    const retainedReply = await createThroughApi(`/api/v1/comments/${createdRoot.id}/replies`, paginationUsers[0],
+      `Reply retained below tombstone ${runId}`);
+
+    const anonymousList = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`, {
+      headers: { Origin: baseUrl },
+    });
+    check(anonymousList.response.status === 200 && anonymousList.content.items.length === 20 &&
+      anonymousList.content.hasMore && anonymousList.content.nextCursor,
+    "Anonymous Community first page did not prove bounded keyset pagination.");
+    check(anonymousList.response.headers.get("cache-control")?.includes("no-store"),
+      "Community list response did not return no-store.");
+    check((anonymousList.response.headers.get("access-control-expose-headers") ?? "").includes("ETag") &&
+      (anonymousList.response.headers.get("access-control-expose-headers") ?? "").includes("Idempotent-Replay"),
+    "Community CORS response did not expose mutation reconciliation headers.");
+    anonymousList.content.items.forEach((item) =>
+      assertCommentCapabilities(item, { owned: false, editable: false, deletable: false }));
+    const ownerList = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`, { token: creator.tokens.accessToken });
+    const ownerProjection = ownerList.content.items.find((item) => item.id === createdRoot.id);
+    assertCommentCapabilities(ownerProjection, { owned: true, editable: true, deletable: true });
+    const otherList = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`, { token: userB.tokens.accessToken });
+    const otherProjection = otherList.content.items.find((item) => item.id === createdRoot.id);
+    assertCommentCapabilities(otherProjection, { owned: false, editable: false, deletable: false });
+    const invalidRead = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`, {
+      headers: { Authorization: "Bearer invalid-community-e2e" },
+    });
+    check(invalidRead.response.status === 401 && invalidRead.content?.status === 401,
+      "Invalid credentials on Community GET fell back to anonymous access.");
+    const badCursor = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20&cursor=malformed`);
+    check(badCursor.response.status === 400 && badCursor.content?.status === 400,
+      "Community malformed cursor did not return Problem Details 400.");
+
+    await creatorPage.reload({ waitUntil: "networkidle" });
+    const loadMore = creatorPage.getByRole("button", { name: "Load more Comments" });
+    await loadMore.waitFor();
+    await loadMore.click();
+    await creatorPage.getByText(userCRoots.at(-1).body, { exact: true }).waitFor();
+    await creatorPage.getByLabel("Sort Comments").selectOption("NEWEST");
+    await creatorPage.getByText(userCRoots.at(-1).body, { exact: true }).waitFor();
+    await creatorPage.getByLabel("Sort Comments").selectOption("OLDEST");
+
+    const userBPage = await openPage(userB.tokens);
+    await userBPage.goto(`${baseUrl}${storyPath}`, { waitUntil: "networkidle" });
+    const rootForOther = userBPage.locator("article").filter({ hasText: thaiRootBody }).first();
+    await rootForOther.waitFor();
+    check(await rootForOther.getByRole("button", { name: "Edit" }).count() === 0 &&
+      await rootForOther.getByRole("button", { name: "Delete" }).count() === 0,
+    "Another viewer received owner controls for a Comment.");
+    const viewReplies = rootForOther.getByRole("button", { name: "View Replies" });
+    await viewReplies.click();
+    const replyArticle = userBPage.locator('article[aria-label^="Reply by"]')
+      .filter({ hasText: reply.content.body }).first();
+    await replyArticle.waitFor();
+    check(await replyArticle.getByRole("button", { name: "Reply" }).count() === 0,
+      "Reply UI implied nested threading.");
+    check(await replyArticle.getByRole("button", { name: "Delete" }).count() === 1,
+      "Reply owner did not receive its server-authorized Delete control.");
+
+    const [likeResponse] = await Promise.all([
+      userBPage.waitForResponse((response) => response.request().method() === "PUT" &&
+        new URL(response.url()).pathname === `/api/v1/comments/${createdRoot.id}/like`),
+      rootForOther.getByLabel("Comment interactions").first()
+        .getByRole("button", { name: "Like Comment" }).click(),
+    ]);
+    check(likeResponse.status() === 200, "Comment Like UI did not receive a successful server response.");
+    await rootForOther.getByLabel("1 Likes").waitFor();
+    await userBPage.reload({ waitUntil: "networkidle" });
+    const likedAfterReload = userBPage.locator(`#comment-${createdRoot.id}`);
+    check(await likedAfterReload.getByRole("button", { name: "Unlike Comment" }).getAttribute("aria-pressed") === "true",
+      "Comment Like state did not persist after reload.");
+    const [unlikeResponse] = await Promise.all([
+      userBPage.waitForResponse((response) => response.request().method() === "DELETE" &&
+        new URL(response.url()).pathname === `/api/v1/comments/${createdRoot.id}/like`),
+      likedAfterReload.getByRole("button", { name: "Unlike Comment" }).click(),
+    ]);
+    check(unlikeResponse.status() === 200, "Comment Unlike UI did not reconcile successfully.");
+    const repeatedUnlike = await apiCall(`/api/v1/comments/${createdRoot.id}/like`, {
+      token: userB.tokens.accessToken, method: "DELETE",
+    });
+    check(repeatedUnlike.response.status === 200 && repeatedUnlike.content.likeCount === 0,
+      "Repeated Comment Unlike was not idempotent.");
+    check(await creatorPage.locator(`#comment-${createdRoot.id}`).getByLabel("Comment interactions").first()
+      .getByRole("button", { name: "Like Comment" }).count() === 0,
+      "Comment author received a self-Like control.");
+
+    const creatorReplyRoot = creatorPage.locator(`#comment-${createdRoot.id}`);
+    const creatorViewReplies = creatorReplyRoot.getByRole("button", { name: "View Replies" });
+    if (await creatorViewReplies.count()) await creatorViewReplies.click();
+    const creatorReply = creatorPage.locator(`#comment-${reply.content.id}`);
+    const [replyLikeResponse] = await Promise.all([
+      creatorPage.waitForResponse((response) => response.request().method() === "PUT" &&
+        new URL(response.url()).pathname === `/api/v1/comments/${reply.content.id}/like`),
+      creatorReply.getByRole("button", { name: "Like Comment" }).click(),
+    ]);
+    check(replyLikeResponse.status() === 200, "Reply Like did not work through the shared UI.");
+
+    const reportTarget = userBPage.locator(`#comment-${createdRoot.id}`);
+    await reportTarget.getByRole("button", { name: "Report" }).click();
+    const commentReportDialog = userBPage.getByRole("dialog", { name: "Report Comment" });
+    await commentReportDialog.getByLabel("Reason").selectOption("HARASSMENT");
+    await commentReportDialog.getByLabel(/Additional details/).fill(`Browser report ${runId}`);
+    const [submittedCommentReport] = await Promise.all([
+      userBPage.waitForResponse((response) => response.request().method() === "POST" &&
+        new URL(response.url()).pathname === `/api/v1/comments/${createdRoot.id}/reports`),
+      commentReportDialog.getByRole("button", { name: "Submit report" }).click(),
+    ]);
+    check(submittedCommentReport.status() === 201, "Comment report UI did not create a moderation report.");
+    databaseCommand(`UPDATE user_profiles SET moderation_visibility = 'Hidden'
+      WHERE user_id = ${sqlLiteral(userB.id)}::uuid;`);
+    await userBPage.reload({ waitUntil: "networkidle" });
+    const hiddenOwner = userBPage.locator("article").filter({ hasText: userBRootBodies[0] }).first();
+    await hiddenOwner.waitFor();
+    check((await hiddenOwner.innerText()).includes("NovelVerse member") &&
+      await hiddenOwner.getByRole("button", { name: "Edit" }).count() === 1,
+    "Hidden-profile ownership was inferred from presentation instead of server capability.");
+    await anonymousPage.reload({ waitUntil: "networkidle" });
+    const hiddenOther = anonymousPage.locator("article").filter({ hasText: userBRootBodies[0] }).first();
+    await hiddenOther.waitFor();
+    check((await hiddenOther.innerText()).includes("NovelVerse member") &&
+      await hiddenOther.getByRole("button", { name: "Edit" }).count() === 0,
+    "Hidden-profile projection leaked owner capability to another viewer.");
+    databaseCommand(`UPDATE user_profiles SET moderation_visibility = 'Visible'
+      WHERE user_id = ${sqlLiteral(userB.id)}::uuid;`);
+
+    const creatorViewOfOther = creatorPage.locator("article").filter({ hasText: userBRootBodies[0] }).first();
+    check(await creatorViewOfOther.getByRole("button", { name: "Edit" }).count() === 0,
+      "Target Creator received author controls for another viewer's Comment.");
+    databaseCommand(`UPDATE users SET role = 'Moderator' WHERE id = ${sqlLiteral(userC.id)}::uuid;`);
+    const moderatorSignIn = await apiCall("/api/v1/dev/auth/social-sign-in", {
+      method: "POST", body: userC.identity,
+    });
+    check(moderatorSignIn.response.ok, "Community moderator token refresh failed.");
+    const moderatorTokens = moderatorSignIn.content.tokens;
+    const moderatorPage = await openPage(moderatorTokens);
+    await moderatorPage.goto(`${baseUrl}${storyPath}`, { waitUntil: "networkidle" });
+    const moderatorView = moderatorPage.locator("article").filter({ hasText: userBRootBodies[0] }).first();
+    await moderatorView.waitFor();
+    check(await moderatorView.getByRole("button", { name: "Edit" }).count() === 0 &&
+      await moderatorView.getByRole("button", { name: "Delete" }).count() === 0,
+    "Moderator role created Comment author capability.");
+    await moderatorPage.goto(`${baseUrl}/moderation/reports`, { waitUntil: "networkidle" });
+    await moderatorPage.getByLabel("Target type").selectOption("COMMENT");
+    const reportCard = moderatorPage.locator("article").filter({ hasText: "COMMENT · HARASSMENT" }).first();
+    await reportCard.waitFor();
+    check((await reportCard.innerText()).includes(thaiRootBody) &&
+      (await reportCard.innerText()).includes("Restricted report-time evidence"),
+    "Moderator queue did not render restricted Comment report-time evidence.");
+    moderatorPage.on("dialog", (dialog) => dialog.accept());
+    const [hideResponse] = await Promise.all([
+      moderatorPage.waitForResponse((response) => response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/v1/moderation/actions/hide"),
+      reportCard.getByRole("button", { name: "Hide and close report" }).click(),
+    ]);
+    check(hideResponse.status() === 200, "Moderator Comment Hide failed.");
+    const hiddenPublic = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`);
+    check(!hiddenPublic.content.items.some((item) => item.id === createdRoot.id),
+      "Hidden Comment root remained publicly projected.");
+    const hiddenReplies = await apiCall(`/api/v1/comments/${createdRoot.id}/replies?pageSize=20`);
+    check(hiddenReplies.response.status === 404, "Hidden root subtree remained directly readable.");
+    const [restoreResponse] = await Promise.all([
+      moderatorPage.waitForResponse((response) => response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/api/v1/moderation/actions/restore"),
+      moderatorPage.getByRole("button", { name: "Restore target" }).first().click(),
+    ]);
+    check(restoreResponse.status() === 200, "Moderator Comment Restore failed.");
+    const restoredPublic = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`);
+    check(restoredPublic.content.items.some((item) => item.id === createdRoot.id),
+      "Restored Comment did not return to current eligible public truth.");
+    databaseCommand(`UPDATE users SET role = 'User' WHERE id = ${sqlLiteral(userC.id)}::uuid;`);
+
+    const privacyActor = paginationUsers.at(-1);
+    const privacyReplyActor = await createSocialUser("privacy-replier", "Privacy Reply Viewer");
+    const privacyRoot = await createThroughApi(storyRoute, privacyActor, `Privacy root ${runId}`);
+    const privacyReply = await createThroughApi(`/api/v1/comments/${privacyRoot.content.id}/replies`, privacyReplyActor,
+      `Incoming privacy Reply ${runId}`);
+    await apiCall(`/api/v1/comments/${privacyRoot.content.id}/like`, {
+      token: userB.tokens.accessToken, method: "PUT",
+    });
+    await apiCall(`/api/v1/comments/${privacyReply.content.id}/like`, {
+      token: privacyActor.tokens.accessToken, method: "PUT",
+    });
+    const privacyReporter = await apiCall(`/api/v1/comments/${userBRoots[0].id}/reports`, {
+      token: privacyActor.tokens.accessToken, method: "POST", body: { reason: "PRIVACY", comment: null },
+    });
+    check(privacyReporter.response.status === 201, "Privacy reporter fixture failed.");
+    const privacyUnlink = await apiCall("/api/v1/dev/social/privacy/unlink", {
+      token: privacyActor.tokens.accessToken, method: "DELETE",
+    });
+    check(privacyUnlink.response.ok && privacyUnlink.content.outgoingCommentLikes === 1 &&
+      privacyUnlink.content.incomingCommentLikes === 1 && privacyUnlink.content.commentsUnlinked >= 1 &&
+      privacyUnlink.content.reportsUnlinked === 1,
+    "Community privacy unlink did not remove identity, bodies, Likes, and reporter link.");
+    const privacyList = await apiCall(`${storyRoute}?sort=NEWEST&pageSize=20`);
+    const privacyTombstone = privacyList.content.items.find((item) => item.id === privacyRoot.content.id);
+    check(privacyTombstone?.isTombstone && privacyTombstone.body === null && privacyTombstone.likeCount === 0,
+      "Privacy-unlinked root did not become a neutral Like-free tombstone.");
+    const privacyReplies = await apiCall(`/api/v1/comments/${privacyRoot.content.id}/replies?pageSize=20`);
+    check(privacyReplies.content.items.some((item) => item.id === privacyReply.content.id),
+      "Privacy unlink removed an unrelated incoming Reply.");
+
+    const freshOwner = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`, { token: creator.tokens.accessToken });
+    const beforeConflict = freshOwner.content.items.find((item) => item.id === createdRoot.id);
+    const concurrentBody = `Concurrent server edit ${runId}`;
+    const concurrentEdit = await apiCall(`/api/v1/comments/${createdRoot.id}`, {
+      token: creator.tokens.accessToken, method: "PATCH", body: { body: concurrentBody, isSpoiler: false },
+      headers: { "If-Match": beforeConflict.editTag },
+    });
+    check(concurrentEdit.response.status === 200, "Community concurrent edit fixture failed.");
+    const staleEdit = await apiCall(`/api/v1/comments/${createdRoot.id}`, {
+      token: creator.tokens.accessToken, method: "PATCH",
+      body: { body: `Stale rejected edit ${runId}`, isSpoiler: false },
+      headers: { "If-Match": beforeConflict.editTag },
+    });
+    check(staleEdit.response.status === 409 && staleEdit.content?.status === 409,
+      "Stale Community edit did not return Problem Details 409.");
+    await creatorPage.reload({ waitUntil: "networkidle" });
+    await creatorPage.getByText(concurrentBody, { exact: true }).waitFor();
+    const reconciledArticle = creatorPage.locator(`#comment-${createdRoot.id}`);
+    await reconciledArticle.getByRole("button", { name: "Edit" }).click();
+    const finalEditBody = `Server-confirmed edit ${runId}`;
+    await reconciledArticle.getByRole("textbox", { name: "Edit Comment" }).fill(finalEditBody);
+    await reconciledArticle.getByRole("button", { name: "Submit" }).click();
+    await creatorPage.getByText(finalEditBody, { exact: true }).waitFor();
+    evidenceState.markMutationConcurrencyVerified();
+
+    const rootBeforeReplyDelete = userBPage.locator(`#comment-${createdRoot.id}`);
+    const reopenReplies = rootBeforeReplyDelete.getByRole("button", { name: "View Replies" });
+    if (await reopenReplies.count()) await reopenReplies.click();
+    const replyDeleteArticle = userBPage.locator('article[aria-label^="Reply by"]')
+      .filter({ hasText: reply.content.body }).first();
+    await replyDeleteArticle.waitFor();
+    await replyDeleteArticle.getByRole("button", { name: "Delete" }).click();
+    const replyDeleteResponse = userBPage.waitForResponse((response) =>
+      response.request().method() === "DELETE" && new URL(response.url()).pathname === `/api/v1/comments/${reply.content.id}`);
+    await userBPage.getByRole("dialog", { name: "Delete Comment permanently?" })
+      .getByRole("button", { name: "Delete permanently" }).click();
+    check((await replyDeleteResponse).status() === 204, "Community Reply delete did not return 204.");
+    await replyDeleteArticle.waitFor({ state: "detached" });
+
+    const updatedOwnerPage = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`, { token: creator.tokens.accessToken });
+    const deletableRoot = updatedOwnerPage.content.items.find((item) => item.id === createdRoot.id);
+    const rootDelete = await apiCall(`/api/v1/comments/${createdRoot.id}`, {
+      token: creator.tokens.accessToken, method: "DELETE", headers: { "If-Match": deletableRoot.editTag },
+    });
+    check(rootDelete.response.status === 204, "Community root delete did not return 204.");
+    const afterRootDelete = await apiCall(`${storyRoute}?sort=OLDEST&pageSize=20`, { token: creator.tokens.accessToken });
+    const tombstone = afterRootDelete.content.items.find((item) => item.id === createdRoot.id);
+    check(tombstone?.isTombstone && tombstone.body === null && tombstone.author === null,
+      "Deleted root with visible Reply did not become a neutral server tombstone.");
+    assertCommentCapabilities(tombstone, { owned: false, editable: false, deletable: false });
+    const retainedReplies = await apiCall(`/api/v1/comments/${createdRoot.id}/replies?pageSize=20`, {
+      token: paginationUsers[0].tokens.accessToken,
+    });
+    check(retainedReplies.content.items.some((item) => item.id === retainedReply.content.id),
+      "Visible Reply was not retained beneath a root tombstone.");
+
+    const spoilerList = await apiCall(`${storyRoute}?sort=NEWEST&pageSize=20`, { token: creator.tokens.accessToken });
+    const emptyRoot = spoilerList.content.items.find((item) => item.body === spoilerBody);
+    const emptyDelete = await apiCall(`/api/v1/comments/${emptyRoot.id}`, {
+      token: creator.tokens.accessToken, method: "DELETE", headers: { "If-Match": emptyRoot.editTag },
+    });
+    check(emptyDelete.response.status === 204, "Empty Community root delete failed.");
+    const afterEmptyDelete = await apiCall(`${storyRoute}?sort=NEWEST&pageSize=20`, { token: creator.tokens.accessToken });
+    check(!afterEmptyDelete.content.items.some((item) => item.id === emptyRoot.id),
+      "Deleted root without Replies remained projected.");
+
+    const oversized = await apiCall(storyRoute, {
+      token: paginationUsers[1].tokens.accessToken, method: "POST",
+      body: { body: "🙂".repeat(5_000), isSpoiler: false },
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    });
+    check(oversized.response.status === 413 && oversized.content?.status === 413,
+      "Community oversized request did not return Problem Details 413.");
+    const likeQuotaStatuses = [];
+    for (let index = 0; index < 31; index += 1) {
+      likeQuotaStatuses.push((await apiCall(`/api/v1/comments/${userBRoots[0].id}/like`, {
+        token: paginationUsers[1].tokens.accessToken, method: index % 2 === 0 ? "PUT" : "DELETE",
+      })).response.status);
+    }
+    check(likeQuotaStatuses.includes(429), "Comment Like rate-limit path did not return 429.");
+    evidenceState.markLimiterVerified("like");
+    const reportQuotaStatuses = [];
+    for (const [target, reason] of [[createdRoot.id, "SPAM"], [userBRoots[0].id, "HATE"],
+      [userBRoots[1].id, "VIOLENCE"], [userBRoots[2].id, "OTHER"],
+      [userBRoots[3].id, "MISINFORMATION"], [userBRoots[0].id, "COPYRIGHT"]]) {
+      reportQuotaStatuses.push((await apiCall(`/api/v1/comments/${target}/reports`, {
+        token: paginationUsers[0].tokens.accessToken, method: "POST", body: { reason, comment: null },
+      })).response.status);
+    }
+    check(reportQuotaStatuses.includes(429), "Comment report rate-limit path did not return 429.");
+    evidenceState.markLimiterVerified("report");
+    const quotaStatuses = [];
+    for (let index = 0; index < 4; index += 1) {
+      quotaStatuses.push((await apiCall(storyRoute, {
+        token: paginationUsers[2].tokens.accessToken, method: "POST",
+        body: { body: `Quota ${index} ${runId}`, isSpoiler: false },
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+      })).response.status);
+    }
+    check(quotaStatuses.includes(429), "Community create rate-limit path did not return 429.");
+    evidenceState.markLimiterVerified("create");
+
+    for (const [route, body] of [[
+      `/read-novel/${creator.slug}/browser-e2e-story-${runId}/browser-e2e-episode-${runId}`, novelBody,
+    ], [
+      `/read-comic/${creator.slug}/browser-e2e-comic-${runId}/comic-episode-${runId}`, comicBody,
+    ], [
+      `/watch-video/${creator.slug}/browser-e2e-video-${runId}/video-episode-${runId}`, videoBody,
+    ]]) {
+      await creatorPage.goto(`${baseUrl}${route}`, { waitUntil: "networkidle" });
+      await creatorPage.getByRole("region", { name: "Discussion" }).getByText(body, { exact: true }).waitFor();
+    }
+    await creatorPage.goto(`${baseUrl}/read-novel/${creator.slug}/browser-e2e-story-${runId}/browser-e2e-episode-${runId}`,
+      { waitUntil: "networkidle" });
+    const readerPath = new URL(creatorPage.url()).pathname;
+    const readerComposer = creatorPage.getByRole("form", { name: "Write a Comment" }).getByRole("textbox");
+    await readerComposer.focus();
+    await readerComposer.press("ArrowRight");
+    check(new URL(creatorPage.url()).pathname === readerPath,
+      "Reader ArrowRight navigation fired inside the Community composer.");
+    check(!(await creatorPage.locator("body").innerText()).toLowerCase().includes("mock comment"),
+      "Production Community flow rendered a mock fallback.");
+    const evidence = requireSuccessfulCommunityEvidence(evidenceState, { mockFallbackDetected: false });
+
+    return {
+      verified: true, durationMs: Date.now() - communityStartedAt, rootsCreated: 22,
+      storyDiscussionVerified: true, novelDiscussionVerified: true,
+      comicDiscussionVerified: true, videoDiscussionVerified: true,
+      ownerCapabilitiesVerified: true, ...evidence,
+    };
+  } finally {
+    await Promise.all(contexts.map((context) => context.close().catch(() => undefined)));
+  }
 }
 
 async function createSocialUser(prefix, displayName) {
@@ -277,6 +724,7 @@ async function run() {
   const engagementStarts = [];
   const pendingEngagementResponses = new Set();
   const engagementResponseErrors = [];
+  let communityResult = null;
   page.on("response", (response) => {
     if (response.request().method() === "POST" &&
         /\/api\/v1\/engagement\/sessions$/.test(new URL(response.url()).pathname) &&
@@ -945,6 +1393,17 @@ async function run() {
     const viewerE = await createSocialUser("dashboard-viewer-e", `Dashboard Viewer E ${runId}`);
     const viewerF = await createSocialUser("dashboard-viewer-f", `Dashboard Viewer F ${runId}`);
     const viewerG = await createSocialUser("dashboard-viewer-g", `Dashboard Viewer G ${runId}`);
+    communityResult = await runCommunityDiscussionE2E(browser, {
+      storyPath: publicStoryPath,
+      storyRoute: `/api/v1/stories/${creatorSlug}/browser-e2e-story-${runId}/comments`,
+      novelRoute: `/api/v1/stories/${creatorSlug}/browser-e2e-story-${runId}/episodes/browser-e2e-episode-${runId}/comments`,
+      comicRoute: `/api/v1/stories/${creatorSlug}/browser-e2e-comic-${runId}/episodes/comic-episode-${runId}/comments`,
+      videoRoute: `/api/v1/stories/${creatorSlug}/browser-e2e-video-${runId}/episodes/video-episode-${runId}/comments`,
+      creator: { ...creatorIdentity, slug: creatorSlug },
+      userB,
+      userC,
+      paginationUsers: [viewerD, viewerE, viewerF, viewerG],
+    });
     await createQualifiedDashboardSession(
       viewerD, episodeId, performanceContent.content, metricTimestamp.toISOString());
     await createQualifiedDashboardSession(
@@ -1657,8 +2116,19 @@ async function run() {
       creatorDashboardResponsiveAccessibilityVerified: true,
       creatorDashboardQuickActionsVerified: true,
       creatorDashboardLogoutVerified: true,
+      communityDiscussionVerified: communityResult?.verified === true,
+      communityDiscussionDurationMs: communityResult?.durationMs ?? null,
+      communityStoryVerified: communityResult?.storyDiscussionVerified === true,
+      communityNovelVerified: communityResult?.novelDiscussionVerified === true,
+      communityComicVerified: communityResult?.comicDiscussionVerified === true,
+      communityVideoVerified: communityResult?.videoDiscussionVerified === true,
+      communityOwnerCapabilitiesVerified: communityResult?.ownerCapabilitiesVerified === true,
+      communityMutationConcurrencyVerified:
+        communityResult?.communityMutationConcurrencyVerified === true,
+      communityLimiterAssertionsVerified:
+        communityResult?.communityLimiterAssertionsVerified === true,
       draftExcludedFromDiscovery: true,
-      mockFallbackDetected: false,
+      mockFallbackDetected: communityResult?.mockFallbackDetected ?? true,
     }, null, 2));
   } catch (error) {
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
@@ -1666,6 +2136,7 @@ async function run() {
     throw error;
   } finally {
     await fs.rm(imagePath, { force: true }).catch(() => undefined);
+    await fs.rm(screenshotPath, { force: true }).catch(() => undefined);
     await context.close();
     await browser.close();
   }

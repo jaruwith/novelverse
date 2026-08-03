@@ -1,0 +1,18 @@
+.field {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.field select,
+.field textarea {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 9px 12px;
+}
+
+.field textarea {
+  min-height: 100px;
+  resize: vertical;
+}

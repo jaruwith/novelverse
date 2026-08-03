@@ -14,6 +14,10 @@ vi.mock("@/features/novel-editor/api", async (importOriginal) => {
     getPublicStory: vi.fn(), listPublicEpisodes: vi.fn(), hasSession: vi.fn(),
     listLibrary: vi.fn(), addBookmark: vi.fn(), removeBookmark: vi.fn(), likeStory: vi.fn(), unlikeStory: vi.fn(), followCreator: vi.fn(), unfollowCreator: vi.fn(), getLikeState: vi.fn(), getFollowState: vi.fn() };
 });
+vi.mock("@/features/community/DiscussionPanel", () => ({
+  DiscussionPanel: ({ target }: { target: { kind: string; creatorSlug: string; storySlug: string } }) =>
+    <section data-testid="discussion-panel">{target.kind}:{target.creatorSlug}:{target.storySlug}</section>,
+}));
 
 const story: PublicStory = {
   id: "story-1", creatorSlug: "creator-one", creatorDisplayName: "นักเขียนหนึ่ง",
@@ -120,6 +124,12 @@ describe("public discovery Home", () => {
 });
 
 describe("public Story Detail", () => {
+  it("mounts the real Story-target discussion boundary without a mock Comment import", async () => {
+    render(<StoryDetail creatorSlug="creator-one" storySlug="real-api-story" />);
+    expect(await screen.findByTestId("discussion-panel"))
+      .toHaveTextContent("STORY:creator-one:real-api-story");
+  });
+
   it("decodes encoded Thai route segments once before loading Story and Episode data", async () => {
     const thaiStory = { ...story, title: "test นิยาย", slug: "test-นิยาย", creatorSlug: "local-creator" };
     vi.mocked(api.getPublicStory).mockResolvedValue(thaiStory);

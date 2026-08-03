@@ -24,7 +24,7 @@ let sessionGeneration = 0;
 const absoluteApiUrl = (url: string | null) => url ? new URL(url, API_BASE).toString() : null;
 
 export class ApiError extends Error {
-  constructor(public status: number, public problem?: ProblemDetails) {
+  constructor(public status: number, public problem?: ProblemDetails, public headers = new Headers()) {
     super(problem?.detail || problem?.title || "Request failed");
   }
 }
@@ -93,7 +93,7 @@ async function refreshSession(): Promise<boolean> {
   return refreshInFlight;
 }
 
-async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+export async function apiRequest(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
   const token = typeof window === "undefined" ? null : localStorage.getItem(ACCESS_KEY);
   let response: Response;
   try {
@@ -111,12 +111,17 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
     if (reason instanceof DOMException && reason.name === "AbortError") throw reason;
     throw new ApiError(0, { detail: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองอีกครั้ง" });
   }
-  if (response.status === 401 && retry && await refreshSession()) return request<T>(path, init, false);
+  if (response.status === 401 && retry && await refreshSession()) return apiRequest(path, init, false);
   if (!response.ok) {
     const problem = await parseProblem(response);
     if (response.status === 401) clearSession();
-    throw new ApiError(response.status, problem);
+    throw new ApiError(response.status, problem, new Headers(response.headers));
   }
+  return response;
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await apiRequest(path, init);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
@@ -241,14 +246,14 @@ export const submitModerationReport = (targetType: ModerationTargetType, targetI
   });
 export const listModerationReports = (input: {
   status?: ModerationReportStatus; targetType?: ModerationTargetType;
-  sort?: "NEWEST" | "OLDEST"; page?: number; pageSize?: number;
+  sort?: "NEWEST" | "OLDEST"; page?: number; pageSize?: number; signal?: AbortSignal;
 } = {}) => {
   const query = new URLSearchParams({
     sort: input.sort ?? "NEWEST", page: String(input.page ?? 1), pageSize: String(input.pageSize ?? 20),
   });
   if (input.status) query.set("status", input.status);
   if (input.targetType) query.set("targetType", input.targetType);
-  return request<PagedResponse<ModerationReport>>(`/api/v1/moderation/reports?${query}`);
+  return request<PagedResponse<ModerationReport>>(`/api/v1/moderation/reports?${query}`, { signal: input.signal });
 };
 export const updateModerationWorkflow = (reportId: string,
   status: "UNDER_REVIEW" | "DISMISSED" | "ACTION_TAKEN", note: string | null = null) =>
@@ -257,9 +262,11 @@ export const updateModerationWorkflow = (reportId: string,
   });
 export const moderateTarget = (operation: "hide" | "restore", input: {
   targetType: ModerationTargetType; targetId: string; reportId?: string | null;
-  reasonCode: ModerationReason; note?: string | null;
+  reasonCode: ModerationReason; note?: string | null; operationId?: string;
 }) => request<{ targetType: ModerationTargetType; targetId: string; state: "VISIBLE" | "HIDDEN" }>(
-  `/api/v1/moderation/actions/${operation}`, { method: "POST", body: JSON.stringify(input) },
+  `/api/v1/moderation/actions/${operation}`, { method: "POST", body: JSON.stringify({
+    ...input, operationId: input.operationId ?? globalThis.crypto.randomUUID(),
+  }) },
 );
 export const createNovelStory = (title: string, synopsis: string, categoryId: string) =>
   createStory(title, synopsis, categoryId, "NOVEL");

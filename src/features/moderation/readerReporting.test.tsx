@@ -13,7 +13,10 @@ const api = vi.hoisted(() => ({
   getPublicEpisodeNavigation: vi.fn(),
 }));
 const progress = vi.hoisted(() => ({ recordEpisodeProgress: vi.fn() }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/read-novel/creator/story/episode",
+}));
 vi.mock("@/features/novel-editor/api", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/features/novel-editor/api")>();
   return { ...original, ...api };
@@ -22,6 +25,9 @@ vi.mock("@/features/reader-state/progress", () => progress);
 vi.mock("@/features/moderation/ReportDialog", () => ({
   ReportDialog: ({ targetType, targetId }: { targetType: string; targetId: string }) =>
     <div data-testid="report-target">{targetType}:{targetId}</div>,
+}));
+vi.mock("@/features/community/DiscussionPanel", () => ({
+  DiscussionPanel: () => <div data-testid="discussion-panel" />,
 }));
 
 const rawSlugs = {
