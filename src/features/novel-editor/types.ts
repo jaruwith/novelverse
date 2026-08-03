@@ -135,15 +135,20 @@ export type LibraryStory = {
   unavailableReason?: string | null;
 };
 
-export type ModerationTargetType = "STORY" | "EPISODE" | "USER";
+export type ModerationTargetType = "STORY" | "EPISODE" | "USER" | "COMMENT";
 export type ModerationReason = "SPAM" | "COPYRIGHT" | "HARASSMENT" | "HATE" | "SEXUAL_CONTENT" |
   "VIOLENCE" | "SELF_HARM" | "MISINFORMATION" | "IMPERSONATION" | "PRIVACY" | "OTHER";
 export type ModerationReportStatus = "OPEN" | "UNDER_REVIEW" | "ACTION_TAKEN" | "DISMISSED";
 export type ModerationReport = {
-  id: string; reporterUserId: string; targetType: ModerationTargetType; targetId: string;
+  id: string; reporterUserId: string | null; targetType: ModerationTargetType; targetId: string;
   reason: ModerationReason; comment: string | null; status: ModerationReportStatus;
   assignedModeratorUserId: string | null; resolutionNote: string | null;
   createdAt: string; updatedAt: string; reviewedAt: string | null; resolvedAt: string | null;
+  commentEvidence: null | {
+    commentId: string; bodySnapshot: string; isSpoiler: boolean;
+    commentCreatedAt: string; commentEditedAt: string | null; evidenceCreatedAt: string;
+    integrityHash: string; currentState: "VISIBLE" | "HIDDEN" | "DELETED"; currentVersion: number;
+  };
 };
 
 export type ReadingProgress = {

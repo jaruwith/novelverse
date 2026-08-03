@@ -12,6 +12,7 @@ import { resolvePublicEpisodeHref } from "./routes";
 import styles from "./publicDiscovery.module.css";
 import { ReportDialog } from "@/features/moderation/ReportDialog";
 import { EngagementSessionController } from "@/features/engagement/controller";
+import { DiscussionPanel } from "@/features/community/DiscussionPanel";
 
 export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; storySlug: string }) {
   const [story, setStory] = useState<PublicStory | null>(null);
@@ -265,6 +266,7 @@ export function StoryDetail({ creatorSlug, storySlug }: { creatorSlug: string; s
           {loadingMore ? "กำลังโหลดตอนเพิ่มเติม…" : "โหลดตอนเพิ่มเติม"}
         </button>}
       </section>
+      <DiscussionPanel target={{ kind: "STORY", creatorSlug, storySlug }} />
     </main>
   );
 }

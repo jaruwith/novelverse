@@ -12,6 +12,10 @@ vi.mock("@/features/novel-editor/api", async (importOriginal) => ({
   getPublicEpisodeNavigation: vi.fn(),
 }));
 vi.mock("@/features/reader-state/progress", () => ({ recordEpisodeProgress: vi.fn() }));
+vi.mock("@/features/community/DiscussionPanel", () => ({
+  DiscussionPanel: ({ target }: { target: { kind: string; episodeSlug?: string } }) =>
+    <section data-testid="discussion-panel">{target.kind}:{target.episodeSlug}</section>,
+}));
 
 const navigation = {
   story: { id: "11111111-1111-4111-8111-111111111111", title: "Thai Story", creatorSlug: "ผู้สร้าง",
@@ -39,6 +43,7 @@ describe("mixed Reader Navigation state", () => {
   it("renders matched content/navigation and records progress only after both succeed", async () => {
     render(<Frame />);
     expect(await screen.findByText("Readable content")).toBeInTheDocument();
+    expect(screen.getByTestId("discussion-panel")).toHaveTextContent("EPISODE:");
     expect(await screen.findByRole("heading", { name: "Middle" })).toHaveFocus();
     await waitFor(() => expect(recordEpisodeProgress).toHaveBeenCalledWith(
       navigation.story.id, navigation.currentEpisode.id, expect.any(AbortSignal)));
@@ -143,5 +148,16 @@ describe("shared shell boundaries and keyboard", () => {
     fireEvent(window, lastBoundary);
     expect(lastBoundary.defaultPrevented).toBe(false);
     expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores reader arrows anywhere inside Community controls and dialogs", () => {
+    render(<ReaderNavigationShell navigation={navigation} navigationState="ready" retryNavigation={vi.fn()}>
+      <section data-community-panel><select aria-label="Comment sort"><option>Oldest</option></select>
+        <button type="button">Reveal spoiler</button><div role="dialog"><button>Cancel delete</button></div></section>
+    </ReaderNavigationShell>);
+    fireEvent.keyDown(screen.getByLabelText("Comment sort"), { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Reveal spoiler" }), { key: "ArrowLeft" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Cancel delete" }), { key: "ArrowRight" });
+    expect(push).not.toHaveBeenCalled();
   });
 });

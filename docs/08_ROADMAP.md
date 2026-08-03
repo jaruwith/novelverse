@@ -3,9 +3,9 @@
 | รายการ | ค่า |
 |---|---|
 | Purpose | จัด milestone ตาม phase ที่กำหนด โดยยึดสถานะจาก repository และไม่กำหนดวันส่งมอบเอง |
-| Current Status | Platform Foundation through Epic 12C is complete; Epic 13 Creator Dashboard architecture is approved and implementation is complete pending independent evidence review |
-| Version | v1.0.0-alpha.2 architecture baseline |
-| Last Updated | 29 กรกฎาคม 2569 |
+| Current Status | Epic 14 Reader Navigation is released at `v1.2.0-alpha.1`; Community A/B/C are implemented locally and undergoing final independent cumulative review |
+| Version | v1.2.0-alpha.1 architecture baseline |
+| Last Updated | 2 สิงหาคม 2569 |
 | Author | Codex — Lead Software Architect and Technical Documentation Engineer |
 
 ## Table of Contents
@@ -58,7 +58,7 @@
 
 ## Phase 4 — Creator Dashboard
 
-**สถานะ:** Epic 13 architecture approved; backend and frontend implementation complete pending independent evidence review
+**สถานะ:** Epic 13 Creator Dashboard and Epic 14 Reader Navigation are complete; Community A/B/C are implemented locally and undergoing final independent cumulative review
 
 - Epic 13A: canonical `/creator/dashboard`, owner-scoped overview, recent content, attention, capabilities, and legacy mock-route migration
 - Epic 13B: fixed seven-complete-UTC-day performance snapshot, comparison deltas, privacy suppression, and performance proof
@@ -67,11 +67,15 @@
 
 ## Phase 5 — Community
 
-**สถานะ:** Reader Library, Reading Progress, Moderation, Engagement Measurement, Story Like, and Creator Follow foundations are complete through Epic 12C; remaining Community work is future scope
+**สถานะ:** Community A backend, Community B shared Discussion UI, and Community C abuse/privacy controls are implemented locally. The first independent cumulative review failed on six Medium blockers; their focused closure is implemented and awaiting a fresh independent approval review
 
-- Follow story, chapter like, flat comments, history/progress และ reporting
-- กำหนด moderation policy, anti-abuse, notification ที่จำเป็น และ privacy
-- Creator Follow is implemented as authenticated relational current-state truth; notifications, public identity lists, feeds, comments/reviews, ranking, and recommendations remain future scope
+- Community v1 is bounded to Story/Episode Comments, one-level Replies, Comment Like, author edit/delete, spoiler marking, reporting, and platform-moderator Hide/Restore
+- Release criteria are executable authorization, lifecycle, privacy, rate-limit, pagination, moderation, accessibility, clean-database, scale, and real-stack Browser E2E evidence with no mock fallback
+- Reviews/Ratings require a separate Community v2 architecture; feeds, notifications, mentions, multiple reactions, ranking, recommendations, and real-time delivery remain deferred
+- Completion is measured by the objective Reader, Creator, Moderator, privacy, abuse-control, and Beta-readiness gates in the Community architecture documents, not an estimated percentage
+- Implementation requires immediate privacy unlink, explicit public/operational/restricted record classes, restricted safety evidence, and no numeric retention duration or purge worker
+- Community v1 has no automatic time-based safety-record expiry; the rejected 24-month proposal remains recorded as an independent-review finding, not an approved policy
+- Beta/Production launch remains blocked until product, privacy, safety, legal, and operations owners approve retention duration/clock, legal-hold authority/release, audit expiry, purge operation/ownership, moderator staffing/SLA, and applicable distributed-limiter deployment
 
 ## Phase 6 — Deployment
 

@@ -7,6 +7,7 @@ import { recordEpisodeProgress } from "@/features/reader-state/progress";
 import { ROUTE_SEGMENT_UNAVAILABLE_MESSAGE } from "@/lib/routeSegments";
 import { ReaderNavigationShell } from "./ReaderNavigationShell";
 import type { CreatorEpisodeNavigationResponse } from "./types";
+import { DiscussionPanel } from "@/features/community/DiscussionPanel";
 
 type ReaderSlugs = { creatorSlug: string; storySlug: string; episodeSlug: string };
 type ContentState<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "error" };
@@ -79,7 +80,9 @@ export function ReaderFrame<T>({ slugs, storyType, loadContent, episodeId, rende
     navigation={navigation.status === "ready" ? navigation.value : null}
     navigationState={navigation.status === "ready" ? "ready" : navigation.status}
     retryNavigation={retryNavigation}
-    report={renderReport(content.value)}>
+    report={renderReport(content.value)}
+    discussion={<DiscussionPanel target={{ kind: "EPISODE", creatorSlug: slugs.creatorSlug,
+      storySlug: slugs.storySlug, episodeSlug: slugs.episodeSlug }} />}>
     {renderContent(content.value)}
   </ReaderNavigationShell>;
 }
