@@ -163,3 +163,56 @@ approved commit/push. Deployment C owns ACR/ACA publication, same-origin ingress
 and TLS, Key Vault/Managed Identity, environment configuration, monitoring,
 durable media, and deployed-stack Beta evidence. No cloud deployment or Beta/
 Production readiness is claimed.
+
+## First GitHub-hosted execution (2026-08-08)
+
+The first approved push retained the local-only history above. Frontend PR run
+`31259463310` passed at the initial reviewed commit. The first artifact run
+`31260362127` exposed a Docker classic/containerd identity representation
+difference; the final check accepts either the manifest or config identity from
+the same Buildx metadata while retaining the manifest digest as the canonical
+release identity. Runs `31260770693` and `31260872044` then exposed Trivy's
+SARIF severity-filter behavior. Commit
+`3da90e7ce4d2d3425c17e1a51f5c5764da13216f` set
+`limit-severities-for-sarif: true`; High and Critical findings still fail closed
+and no advisory is suppressed.
+
+Coordinated E2E also preserved its failed-run history. Run `31260362091` showed
+that the Release API was launched outside its publish content root; commit
+`5a526a692f38a5a1ac4688bbfb54ce864d1b9b8d` launches it from the Release output.
+Run `31261070847` found a reader keyboard assertion racing the heading-focus
+effect; commit `2202aa2208d69775a15275af6f4c72b595fc345f` waits for the actual focused
+heading without weakening the assertion. Run `31261314143` found the local
+PostgreSQL container name/user/database hard-coded in the evidence helper;
+commit `61d9af65b5b331655f4a1c913f962a7952586db7` supplies the GitHub service
+container identity through explicit environment variables while preserving
+local defaults.
+
+At exact commit `61d9af65b5b331655f4a1c913f962a7952586db7`, Frontend PR run
+`31261502328` passed. Immutable-artifact run `31261501109` passed in 2 minutes
+6 seconds, including reproducible source validation, one environment-neutral
+image build, exact-archive Trivy scan, SPDX 2.3 SBOM, component manifest,
+GitHub attestation, artifact retention, and whitespace validation.
+
+The retained manifest binds run `31261501109` and the exact commit to image
+digest
+`sha256:c67f49b21a55f4e923bd8921dfe82d2dd32ab2982bdcb71e8d61eaff03a6f789`,
+archive SHA-256
+`f55a53ee0b629e12893bd01242613dfd1fea5e539f1553d7878f14a73e7bc648`,
+and SPDX SHA-256
+`db332ca30a4d14b155d18b5e216113743978776e50d27f1ff78216552e3fe951`.
+The same-run artifact was downloaded, was non-empty, and all archive, SBOM, and
+SARIF hashes matched the manifest. SARIF parsed with zero results.
+`gh attestation verify` enforced repository `jaruwith/novelverse`, signer
+workflow `.github/workflows/frontend-artifacts.yml`, exact source commit, and a
+GitHub-hosted runner for all three retained subjects.
+
+Coordinated Browser E2E run `31261501070` passed in 4 minutes 1 second with
+Frontend commit `61d9af65b5b331655f4a1c913f962a7952586db7` and Backend commit
+`d99053d867fcb147f2d6a0a6a8740832173a6212`. The Notifications slice took
+40,457 ms. Bell, polling, read state, session isolation, producer flow, and
+accessibility flags were all true; `mockFallbackDetected` was false.
+
+The only final hosted annotation is GitHub's Node 20 action-runtime deprecation
+notice for fully SHA-pinned actions now forced onto Node 24. No production
+secret, token, or connection string was found in reviewed logs.
