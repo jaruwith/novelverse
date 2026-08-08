@@ -86,8 +86,10 @@ jobs:
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --label "org.opencontainers.image.version=${COORDINATED_VERSION}" \
             --metadata-file dist/frontend-build-metadata.json .
-          test "$(docker image inspect "novelverse-web:${GITHUB_SHA}" --format '{{.Id}}')" = \
-            "$(jq -r '."containerimage.digest"' dist/frontend-build-metadata.json)"
+          image_id="$(docker image inspect "novelverse-web:${GITHUB_SHA}" --format '{{.Id}}')"
+          manifest_digest="$(jq -r '."containerimage.digest"' dist/frontend-build-metadata.json)"
+          config_digest="$(jq -r '."containerimage.config.digest"' dist/frontend-build-metadata.json)"
+          test "$image_id" = "$manifest_digest" || test "$image_id" = "$config_digest"
           docker save --output dist/novelverse-web.tar "novelverse-web:${GITHUB_SHA}"
 
       - name: Scan exact Frontend image archive

@@ -96,6 +96,15 @@ jobs:
         run: |
           set -euo pipefail
           cleanup() {
+            status=$?
+            if [[ "$status" != 0 ]]; then
+              echo "::group::Sanitized API failure log"
+              sed -E 's/(Password=)[^;[:space:]]+/\1***REDACTED***/Ig' /tmp/novelverse-api.log 2>/dev/null || true
+              echo "::endgroup::"
+              echo "::group::Frontend failure log"
+              tail -n 200 /tmp/novelverse-frontend.log 2>/dev/null || true
+              echo "::endgroup::"
+            fi
             kill "${FRONTEND_PID:-}" "${API_PID:-}" 2>/dev/null || true
           }
           trap cleanup EXIT
@@ -104,6 +113,10 @@ jobs:
           (cd frontend && npm run dev > /tmp/novelverse-frontend.log 2>&1) &
           FRONTEND_PID=$!
           for attempt in $(seq 1 120); do
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "Release API exited before readiness." >&2
+              exit 1
+            fi
             if curl --fail --silent http://localhost:5039/api/v1/health/ready >/dev/null &&
                curl --fail --silent http://localhost:3000/login >/dev/null; then
               break
