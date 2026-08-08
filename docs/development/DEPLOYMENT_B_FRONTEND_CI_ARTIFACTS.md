@@ -177,16 +177,19 @@ SARIF severity-filter behavior. Commit
 `limit-severities-for-sarif: true`; High and Critical findings still fail closed
 and no advisory is suppressed.
 
-Coordinated E2E also preserved its failed-run history. Run `31260362091` showed
-that the Release API was launched outside its publish content root; commit
+Coordinated E2E also preserved its failed-run history. Initial run
+`31260362091` failed during API startup before sufficient diagnostics were
+retained. Diagnostic run `31260770686` then proved that the Release API was
+launched outside its publish content root; commit
 `5a526a692f38a5a1ac4688bbfb54ce864d1b9b8d` launches it from the Release output.
-Run `31261070847` found a reader keyboard assertion racing the heading-focus
-effect; commit `2202aa2208d69775a15275af6f4c72b595fc345f` waits for the actual focused
-heading without weakening the assertion. Run `31261314143` found the local
-PostgreSQL container name/user/database hard-coded in the evidence helper;
-commit `61d9af65b5b331655f4a1c913f962a7952586db7` supplies the GitHub service
-container identity through explicit environment variables while preserving
-local defaults.
+Runs `31260872030` and `31261314143` exposed the local PostgreSQL container
+name/user/database hard-coded in the evidence helper, while run `31261070847`
+also found a reader keyboard assertion racing the heading-focus effect. Commit
+`2202aa2208d69775a15275af6f4c72b595fc345f` waits for the actual focused heading
+without weakening the assertion. Commit
+`61d9af65b5b331655f4a1c913f962a7952586db7` supplies the GitHub service container
+identity through explicit environment variables while preserving local
+defaults.
 
 At exact commit `61d9af65b5b331655f4a1c913f962a7952586db7`, Frontend PR run
 `31261502328` passed. Immutable-artifact run `31261501109` passed in 2 minutes
