@@ -1,0 +1,149 @@
+name: Frontend immutable artifacts
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      coordinated_version:
+        description: Coordinated SemVer (leave empty for a main snapshot identity)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: frontend-artifacts-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact source commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up pinned Node LTS
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Resolve immutable release identity
+        id: identity
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.coordinated_version }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$REQUESTED_VERSION" ]]; then
+            version="$REQUESTED_VERSION"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="$GITHUB_REF_NAME"
+          else
+            version="0.0.0-main+${GITHUB_SHA}"
+          fi
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ &&
+                ! "$version" =~ ^0\.0\.0-main\+[a-f0-9]{40}$ ]]; then
+            echo "Invalid coordinated version identity." >&2
+            exit 2
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Reproducible source validation
+        run: |
+          npm ci
+          npm test
+          npm run lint
+          npm run typecheck
+          npm run build
+          npm audit
+          npm audit --omit=dev
+
+      - name: Build the environment-neutral image once
+        shell: bash
+        env:
+          COORDINATED_VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          test -z "${NEXT_PUBLIC_API_BASE_URL:-}"
+          docker buildx build --load \
+            --provenance=false \
+            --platform linux/amd64 \
+            --tag "novelverse-web:${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${COORDINATED_VERSION}" \
+            --metadata-file dist/frontend-build-metadata.json .
+          test "$(docker image inspect "novelverse-web:${GITHUB_SHA}" --format '{{.Id}}')" = \
+            "$(jq -r '."containerimage.digest"' dist/frontend-build-metadata.json)"
+          docker save --output dist/novelverse-web.tar "novelverse-web:${GITHUB_SHA}"
+
+      - name: Scan exact Frontend image archive
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          version: v0.73.0
+          input: dist/novelverse-web.tar
+          format: sarif
+          output: dist/frontend-image.sarif
+          scanners: vuln
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Generate Frontend image SPDX SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          version: v0.73.0
+          skip-setup-trivy: true
+          input: dist/novelverse-web.tar
+          format: spdx-json
+          output: dist/frontend-image.spdx.json
+          scanners: vuln
+          exit-code: "0"
+
+      - name: Generate Frontend component manifest
+        shell: pwsh
+        env:
+          COORDINATED_VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          $metadata = Get-Content dist/frontend-build-metadata.json -Raw | ConvertFrom-Json
+          $digest = $metadata.'containerimage.digest'
+          ./scripts/New-DeploymentComponentManifest.ps1 `
+            -CoordinatedVersion $env:COORDINATED_VERSION -Repository $env:GITHUB_REPOSITORY `
+            -Commit $env:GITHUB_SHA -ImageName novelverse-web -ImageTag $env:GITHUB_SHA `
+            -ImageDigest $digest -ImageArchive dist/novelverse-web.tar `
+            -Sbom dist/frontend-image.spdx.json -ScanReport dist/frontend-image.sarif `
+            -OutputPath dist/frontend-component-manifest.json -WorkflowRunId $env:GITHUB_RUN_ID
+          ./scripts/test-deployment-component-manifest.ps1
+
+      - name: Attest retained Frontend artifacts
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            dist/novelverse-web.tar
+            dist/frontend-component-manifest.json
+            dist/frontend-image.spdx.json
+
+      - name: Retain exact artifacts and security evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit whitespace check
+        run: git show --check --oneline --no-renames HEAD

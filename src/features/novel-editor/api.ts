@@ -12,8 +12,8 @@ import {
   parseCreatorEpisodeNavigationResponse,
   type CreatorEpisodeNavigationResponse,
 } from "@/features/reader-navigation/types";
+import { toApiResourceUrl, toApiUrl } from "@/lib/api-url";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5039").replace(/\/$/, "");
 const ACCESS_KEY = "novelverse_access_token";
 const REFRESH_KEY = "novelverse_refresh_token";
 const ACCESS_EXPIRY_KEY = "novelverse_access_token_expires_at";
@@ -22,7 +22,7 @@ const SESSION_CHANGED_EVENT = "novelverse:session-changed";
 const AUTH_STORAGE_KEYS = new Set([ACCESS_KEY, REFRESH_KEY, ACCESS_EXPIRY_KEY, REFRESH_EXPIRY_KEY]);
 let sessionGeneration = 0;
 
-const absoluteApiUrl = (url: string | null) => url ? new URL(url, API_BASE).toString() : null;
+const absoluteApiUrl = toApiResourceUrl;
 
 export class ApiError extends Error {
   constructor(public status: number, public problem?: ProblemDetails, public headers = new Headers()) {
@@ -89,7 +89,7 @@ async function refreshSession(): Promise<boolean> {
   const refreshToken = localStorage.getItem(REFRESH_KEY);
   if (!refreshToken) return false;
   if (!refreshInFlight) {
-    refreshInFlight = fetch(`${API_BASE}/api/v1/auth/refresh`, {
+    refreshInFlight = fetch(toApiUrl("/api/v1/auth/refresh"), {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
@@ -106,7 +106,7 @@ export async function apiRequest(path: string, init: RequestInit = {}, retry = t
   const token = typeof window === "undefined" ? null : localStorage.getItem(ACCESS_KEY);
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(toApiUrl(path), {
       ...init,
       credentials: "include",
       headers: {
@@ -318,7 +318,7 @@ export async function getEpisodeContent(storyId: string, episodeId: string) {
       if (type === "TEXT") return { type, textContent: textContent ?? "", mediaAssetId: null, localKey, persistedId: id };
       if (type === "IMAGE" && mediaAssetId && mediaUrl) return {
         type, textContent: null, mediaAssetId, localKey, persistedId: id,
-        mediaUrl: new URL(mediaUrl, API_BASE).toString(), width, height, mimeType,
+        mediaUrl: toApiResourceUrl(mediaUrl)!, width, height, mimeType,
       };
       return { type: "DIVIDER", textContent: null, mediaAssetId: null, localKey, persistedId: id };
     }),
@@ -354,14 +354,14 @@ function uploadMedia(file: File, purpose: "NOVEL_CONTENT" | "COMIC_PAGE") {
   body.append("file", file);
   body.append("purpose", purpose);
   return request<MediaAsset>("/api/v1/media-assets", { method: "POST", body })
-    .then((asset) => ({ ...asset, contentUrl: new URL(asset.contentUrl, API_BASE).toString() }));
+    .then((asset) => ({ ...asset, contentUrl: toApiResourceUrl(asset.contentUrl)! }));
 }
 export async function getComicPages(storyId: string, episodeId: string) {
   const response = await request<ComicPagesResponse>(
     `/api/v1/creator/stories/${storyId}/episodes/${episodeId}/comic-pages`,
   );
   return { ...response, pages: response.pages.map((page) => ({
-    ...page, mediaUrl: new URL(page.mediaUrl, API_BASE).toString(),
+    ...page, mediaUrl: toApiResourceUrl(page.mediaUrl)!,
   })) };
 }
 export const replaceComicPages = (storyId: string, episodeId: string, mediaAssetIds: string[]) =>
@@ -375,7 +375,7 @@ export async function getPublicComicPages(creatorSlug: string, storySlug: string
     { signal },
   );
   return { ...response, pages: response.pages.map((page) => ({
-    ...page, mediaUrl: new URL(page.mediaUrl, API_BASE).toString(),
+    ...page, mediaUrl: toApiResourceUrl(page.mediaUrl)!,
   })) };
 }
 export const updateEpisode = (storyId: string, episodeId: string, metadata: {
