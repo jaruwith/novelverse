@@ -593,10 +593,14 @@ function sqlLiteral(value) {
   return `'${value}'`;
 }
 
+const e2ePostgresContainer = process.env.NOVELVERSE_E2E_POSTGRES_CONTAINER || "novelverse-postgres";
+const e2ePostgresUser = process.env.NOVELVERSE_E2E_POSTGRES_USER || "novelverse";
+const e2ePostgresDatabase = process.env.NOVELVERSE_E2E_POSTGRES_DATABASE || "novelverse";
+
 function databaseScalar(sql) {
   const output = execFileSync("docker", [
-    "exec", "novelverse-postgres", "psql",
-    "-U", "novelverse", "-d", "novelverse",
+    "exec", e2ePostgresContainer, "psql",
+    "-U", e2ePostgresUser, "-d", e2ePostgresDatabase,
     "-v", "ON_ERROR_STOP=1", "-t", "-A", "-c", sql,
   ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   return Number(output.trim());
@@ -611,8 +615,8 @@ function storyLikeCount(storyId, userId) {
 
 function databaseCommand(sql) {
   execFileSync("docker", [
-    "exec", "novelverse-postgres", "psql",
-    "-U", "novelverse", "-d", "novelverse",
+    "exec", e2ePostgresContainer, "psql",
+    "-U", e2ePostgresUser, "-d", e2ePostgresDatabase,
     "-v", "ON_ERROR_STOP=1", "-c", sql,
   ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }

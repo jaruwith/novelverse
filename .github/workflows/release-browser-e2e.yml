@@ -93,6 +93,10 @@ jobs:
 
       - name: Start real stack and run complete Browser E2E
         shell: bash
+        env:
+          NOVELVERSE_E2E_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          NOVELVERSE_E2E_POSTGRES_USER: postgres
+          NOVELVERSE_E2E_POSTGRES_DATABASE: novelverse_e2e
         run: |
           set -euo pipefail
           cleanup() {
