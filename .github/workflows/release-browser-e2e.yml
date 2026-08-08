@@ -2,6 +2,7 @@ name: Coordinated release Browser E2E
 
 on:
   push:
+    branches: [feature/deployment-architecture]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -54,6 +55,16 @@ jobs:
           repository: jaruwith/NovelVerseApi
           ref: ${{ inputs.backend_ref || github.ref_name }}
           path: backend
+
+      - name: Verify exact coordinated source identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          frontend_commit="$(git -C frontend rev-parse HEAD)"
+          backend_commit="$(git -C backend rev-parse HEAD)"
+          test "$frontend_commit" = "$GITHUB_SHA"
+          echo "Frontend commit: $frontend_commit"
+          echo "Backend commit: $backend_commit"
 
       - name: Set up .NET 10
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
