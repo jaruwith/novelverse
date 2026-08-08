@@ -19,6 +19,7 @@ const REFRESH_KEY = "novelverse_refresh_token";
 const ACCESS_EXPIRY_KEY = "novelverse_access_token_expires_at";
 const REFRESH_EXPIRY_KEY = "novelverse_refresh_token_expires_at";
 const SESSION_CHANGED_EVENT = "novelverse:session-changed";
+const AUTH_STORAGE_KEYS = new Set([ACCESS_KEY, REFRESH_KEY, ACCESS_EXPIRY_KEY, REFRESH_EXPIRY_KEY]);
 let sessionGeneration = 0;
 
 const absoluteApiUrl = (url: string | null) => url ? new URL(url, API_BASE).toString() : null;
@@ -56,6 +57,14 @@ export function subscribeToSessionChanges(listener: () => void) {
   if (typeof window === "undefined") return () => undefined;
   window.addEventListener(SESSION_CHANGED_EVENT, listener);
   return () => window.removeEventListener(SESSION_CHANGED_EVENT, listener);
+}
+export function subscribeToCrossTabSessionChanges(listener: () => void) {
+  if (typeof window === "undefined") return () => undefined;
+  const handle = (event: StorageEvent) => {
+    if (event.storageArea === localStorage && (event.key === null || AUTH_STORAGE_KEYS.has(event.key))) listener();
+  };
+  window.addEventListener("storage", handle);
+  return () => window.removeEventListener("storage", handle);
 }
 export type SocialState = { targetId: string; isActive: boolean; updatedAt: string };
 export const likeStory = (storyId: string) => request<SocialState>(`/api/v1/stories/${storyId}/like`, { method: "PUT" });

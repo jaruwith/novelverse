@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { RoleProvider } from "@/components/RoleProvider";
+import { NotificationsProvider } from "@/features/notifications/NotificationsProvider";
 import "./globals.css";
 import "./accessibility.css";
 export const metadata: Metadata = { title: "NovelVerse — Wireframe", description: "System design wireframe for NovelVerse by J007lnwza" };
-export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="th"><body><RoleProvider>{children}</RoleProvider></body></html>}
+export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="th"><body><RoleProvider><NotificationsProvider>{children}</NotificationsProvider></RoleProvider></body></html>}

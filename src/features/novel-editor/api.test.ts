@@ -7,7 +7,8 @@ import {
   listPublicStories, getCreatorDashboard, getPublicStory, listPublicEpisodes,
   getPublicNovelContent, getPublicComicPages, getPublicVideoContent,
   getPublicEpisodeNavigation,
-  getSessionGeneration, listReadingProgress, storeTokens, subscribeToSessionChanges,
+  getSessionGeneration, listReadingProgress, storeTokens, subscribeToCrossTabSessionChanges,
+  subscribeToSessionChanges,
 } from "./api";
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -33,6 +34,20 @@ describe("verified NovelVerseApi client", () => {
     expect(getSessionGeneration()).toBe(initialGeneration + 2);
     expect(sessionChanged).toHaveBeenCalledTimes(2);
     expect(localStorage.getItem("novelverse_refresh_token")).toBeNull();
+    unsubscribe();
+  });
+
+  it("notifies private controllers only for cross-tab authentication storage changes", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToCrossTabSessionChanges(listener);
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "unrelated-preference", newValue: "x", storageArea: localStorage,
+    }));
+    expect(listener).not.toHaveBeenCalled();
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "novelverse_refresh_token", newValue: "new-session", storageArea: localStorage,
+    }));
+    expect(listener).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
 

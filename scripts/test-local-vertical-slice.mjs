@@ -9,10 +9,15 @@ import {
   createCommunityE2EEvidenceState,
   requireSuccessfulCommunityEvidence,
 } from "./community-e2e-evidence.mjs";
+import {
+  createNotificationsE2EEvidenceState,
+  requireSuccessfulNotificationsEvidence,
+} from "./notifications-e2e-evidence.mjs";
 
 const baseUrl = "http://localhost:3000";
 const apiUrl = "http://localhost:5039";
 const runId = crypto.randomUUID().replaceAll("-", "").slice(0, 10);
+const quiet = process.argv.includes("--quiet");
 const testText = `NovelVerse browser E2E content ${runId}`;
 const screenshotPath = path.join(os.tmpdir(), `novelverse-e2e-failure-${runId}.png`);
 const imagePath = path.join(os.tmpdir(), `novelverse-e2e-${runId}.png`);
@@ -629,6 +634,345 @@ function creatorFollowCount(creatorSlug, followerUserId) {
   );
 }
 
+async function waitForNotificationState(token, predicate, label, timeoutMs = 20_000) {
+  const started = Date.now();
+  let attempts = 0;
+  while (Date.now() - started < timeoutMs) {
+    attempts += 1;
+    const result = await apiCall("/api/v1/notifications?filter=ALL&pageSize=50", { token });
+    if (result.response.ok && predicate(result.content)) {
+      return { page: result.content, attempts, durationMs: Date.now() - started };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error(`Notifications worker did not expose ${label} within ${timeoutMs}ms.`);
+}
+
+async function runNotificationsE2E(browser) {
+  const startedAt = Date.now();
+  const evidence = createNotificationsE2EEvidenceState();
+  const contexts = [];
+  const workerWaits = [];
+  let rateLimitWaitSeconds = 0;
+  let rateLimitRetryAfterSeconds = 0;
+  let moderator = null;
+  const createComment = async (route, user, body) => {
+    const idempotencyKey = crypto.randomUUID();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await apiCall(route, { token: user.tokens.accessToken, method: "POST",
+        body: { body, isSpoiler: false }, headers: { "Idempotency-Key": idempotencyKey, Origin: baseUrl } });
+      if (result.response.status === 201) return result.content;
+      if (result.response.status === 429 && attempt === 0) {
+        const seconds = Math.min(60, Math.max(1, Number(result.response.headers.get("retry-after") ?? 1)));
+        rateLimitWaitSeconds += seconds;
+        await new Promise((resolve) => setTimeout(resolve, seconds * 1_000 + 50));
+        continue;
+      }
+      throw new Error(`Notifications producer Comment ${body} returned ${result.response.status}.`);
+    }
+    throw new Error(`Notifications producer Comment ${body} exhausted its retry.`);
+  };
+  try {
+    const creator = await createSocialUser("notifications-recipient", `Notifications Recipient ${runId}`);
+    const actor = await createSocialUser("notifications-actor", `Notifications Actor ${runId}`);
+    moderator = await createSocialUser("notifications-moderator", `Notifications Moderator ${runId}`);
+    const quotaUser = await createSocialUser("notifications-quota", `Notifications Quota ${runId}`);
+    const paginationActors = await Promise.all([
+      createSocialUser("notifications-page-a", `Notifications Page A ${runId}`),
+      createSocialUser("notifications-page-b", `Notifications Page B ${runId}`),
+      createSocialUser("notifications-page-c", `Notifications Page C ${runId}`),
+      createSocialUser("notifications-page-d", `Notifications Page D ${runId}`),
+    ]);
+    const categories = await apiCall("/api/v1/categories", { token: creator.tokens.accessToken });
+    const category = categories.content.find((value) => value.isActive);
+    check(categories.response.ok && category, "Notifications fixture requires an active category.");
+    const story = await apiCall("/api/v1/creator/stories", {
+      token: creator.tokens.accessToken, method: "POST", body: {
+        title: `Notifications Story ${runId}`, slug: null, synopsis: `Notifications E2E ${runId}`,
+        languageCode: "th", visibility: "PUBLIC", contentRating: "GENERAL", coverMediaAssetId: null,
+        categoryIds: [category.id], tags: [], storyType: "NOVEL", readingMode: "VERTICAL",
+      },
+    });
+    check(story.response.status === 201, "Notifications fixture Story creation failed.");
+    const episode = await apiCall(`/api/v1/creator/stories/${story.content.id}/episodes`, {
+      token: creator.tokens.accessToken, method: "POST", body: {
+        title: `Notifications Episode ${runId}`, episodeNumber: 1, sortOrder: 1,
+        slug: null, synopsis: null, visibility: "PUBLIC",
+      },
+    });
+    check(episode.response.status === 201, "Notifications fixture Episode creation failed.");
+    const content = await apiCall(
+      `/api/v1/creator/stories/${story.content.id}/episodes/${episode.content.id}/content`, {
+        token: creator.tokens.accessToken, method: "PUT", body: {
+          blocks: [{ type: "TEXT", textContent: `Notifications content ${runId}`, mediaAssetId: null }],
+        },
+      });
+    check(content.response.ok, "Notifications fixture Episode content failed.");
+    check((await apiCall(`/api/v1/creator/stories/${story.content.id}/publish`, {
+      token: creator.tokens.accessToken, method: "POST",
+    })).response.ok, "Notifications fixture Story publish failed.");
+    check((await apiCall(`/api/v1/creator/stories/${story.content.id}/episodes/${episode.content.id}/publish`, {
+      token: creator.tokens.accessToken, method: "POST",
+    })).response.ok, "Notifications fixture Episode publish failed.");
+    const creatorSlug = creator.slug;
+    const storyRoute = `/api/v1/stories/${creatorSlug}/${story.content.slug}/comments`;
+    const episodeRoute = `/api/v1/stories/${creatorSlug}/${story.content.slug}/episodes/${episode.content.slug}/comments`;
+
+    const before = await apiCall("/api/v1/notifications/unread-count", { token: creator.tokens.accessToken });
+    check(before.response.ok && Number.isInteger(before.content.unreadCount),
+      "Notifications unread-count fixture baseline was unavailable.");
+
+    const ownerRoot = await createComment(storyRoute, creator, `Notifications owner root ${runId}`);
+    await createComment(`/api/v1/comments/${ownerRoot.id}/replies`, actor, `Notifications Reply ${runId}`);
+    const liked = await apiCall(`/api/v1/comments/${ownerRoot.id}/like`, {
+      token: actor.tokens.accessToken, method: "PUT",
+    });
+    check(liked.response.ok, "Notifications Comment Like producer failed.");
+    const actorRoot = await createComment(storyRoute, actor, `Notifications Story Comment ${runId}`);
+    await createComment(episodeRoute, actor, `Notifications Episode Comment ${runId}`);
+    await apiCall(`/api/v1/creators/by-slug/${creatorSlug}/follow`, {
+      token: actor.tokens.accessToken, method: "DELETE",
+    });
+    const followed = await apiCall(`/api/v1/creators/by-slug/${creatorSlug}/follow`, {
+      token: actor.tokens.accessToken, method: "PUT",
+    });
+    check(followed.response.ok, "Notifications Creator Follow producer failed.");
+
+    const report = await apiCall(`/api/v1/comments/${actorRoot.id}/reports`, {
+      token: creator.tokens.accessToken, method: "POST", body: { reason: "SPAM", comment: null },
+    });
+    check(report.response.status === 201, "Notifications report fixture failed.");
+    databaseCommand(`UPDATE users SET role = 'Moderator' WHERE id = ${sqlLiteral(moderator.id)}::uuid;`);
+    const moderatorSignIn = await apiCall("/api/v1/dev/auth/social-sign-in", { method: "POST", body: moderator.identity });
+    check(moderatorSignIn.response.ok, "Notifications moderator refresh sign-in failed.");
+    const resolved = await apiCall("/api/v1/moderation/actions/hide", {
+      token: moderatorSignIn.content.tokens.accessToken, method: "POST", body: {
+        targetType: "COMMENT", targetId: actorRoot.id, reportId: report.content.id,
+        reasonCode: "SPAM", note: `Notifications report resolution ${runId}`,
+      },
+    });
+    check(resolved.response.ok, "Notifications terminal report outcome producer failed.");
+    const hiddenOwner = await apiCall("/api/v1/moderation/actions/hide", {
+      token: moderatorSignIn.content.tokens.accessToken, method: "POST", body: {
+        targetType: "COMMENT", targetId: ownerRoot.id, reportId: null,
+        reasonCode: "OTHER", note: `Notifications visibility hide ${runId}`,
+      },
+    });
+    check(hiddenOwner.response.ok, "Notifications Hide producer failed.");
+    const restoredOwner = await apiCall("/api/v1/moderation/actions/restore", {
+      token: moderatorSignIn.content.tokens.accessToken, method: "POST", body: {
+        targetType: "COMMENT", targetId: ownerRoot.id, reportId: null,
+        reasonCode: "OTHER", note: `Notifications visibility restore ${runId}`,
+      },
+    });
+    check(restoredOwner.response.ok, "Notifications Restore producer failed.");
+    databaseCommand(`UPDATE users SET role = 'User' WHERE id = ${sqlLiteral(moderator.id)}::uuid;`);
+    for (let index = 0; index < 18; index += 1) {
+      await createComment(storyRoute, paginationActors[index % paginationActors.length],
+        `Notifications pagination ${index + 1} ${runId}`);
+    }
+    const privacy = await apiCall("/api/v1/dev/social/privacy/unlink", {
+      token: paginationActors[0].tokens.accessToken, method: "DELETE",
+    });
+    check(privacy.response.ok, "Notifications actor anonymization fixture failed.");
+
+    const requiredTypes = new Set([
+      "COMMENT_REPLY_CREATED", "COMMENT_LIKE_CREATED", "CREATOR_CONTENT_COMMENT_CREATED",
+      "CREATOR_FOLLOW_CREATED", "MODERATION_REPORT_RESOLVED", "MODERATION_VISIBILITY_CHANGED",
+    ]);
+    const materialized = await waitForNotificationState(creator.tokens.accessToken,
+      (value) => [...requiredTypes].every((type) => value.items.some((item) => item.type === type)) &&
+        value.items.some((item) => item.outcome === "HIDDEN") &&
+        value.items.some((item) => item.outcome === "RESTORED") &&
+        value.items.some((item) => item.type === "CREATOR_CONTENT_COMMENT_CREATED" &&
+          item.actorDisplayName === null),
+    "all approved producer families and the anonymized actor projection");
+    workerWaits.push(materialized.durationMs);
+    const producerItems = materialized.page.items;
+    check(producerItems.every((item) => !("userId" in item) && !("moderator" in item) && !("evidence" in item)),
+      "Notifications feed leaked private producer or moderation fields.");
+    check(producerItems.some((item) => item.type === "CREATOR_CONTENT_COMMENT_CREATED" &&
+      item.actorDisplayName === null), "Notifications privacy unlink did not anonymize an actor projection.");
+    evidence.mark("notificationProducerFlowVerified");
+
+    const context = await browser.newContext({ locale: "th-TH", viewport: { width: 1280, height: 900 } });
+    contexts.push(context);
+    const page = await context.newPage();
+    await setBrowserSession(page, creator.tokens);
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await page.bringToFront();
+    check(await page.evaluate(() => document.visibilityState === "visible"),
+      "Notifications polling proof did not establish a visible-tab precondition.");
+    const confirmed = await apiCall("/api/v1/notifications/unread-count", { token: creator.tokens.accessToken });
+    const initialCount = confirmed.content.unreadCount;
+    const bell = page.getByRole("link", { name: new RegExp(`ยังไม่ได้อ่าน ${initialCount.toLocaleString("th-TH")}`) });
+    await bell.waitFor();
+    check(await bell.getAttribute("href") === "/notifications" &&
+      !(await page.locator("body").innerText()).toLowerCase().includes("mock notification"),
+    "Notification Bell was not exact, canonical, or real-stack backed.");
+    evidence.mark("notificationBellVerified");
+
+    await createComment(storyRoute, actor, `Notifications polling arrival ${runId}`);
+    const pollArrival = await waitForNotificationState(creator.tokens.accessToken,
+      (value) => value.items.some((item) => item.type === "CREATOR_CONTENT_COMMENT_CREATED") &&
+        value.items.filter((item) => item.readAt === null).length >= initialCount + 1,
+      "a post-load polling arrival");
+    workerWaits.push(pollArrival.durationMs);
+    const polledCount = pollArrival.page.items.filter((item) => item.readAt === null).length;
+    await page.getByRole("link", { name: new RegExp(`ยังไม่ได้อ่าน ${polledCount.toLocaleString("th-TH")}`) })
+      .waitFor({ timeout: 35_000 });
+    evidence.mark("notificationPollingVerified");
+
+    await page.goto(`${baseUrl}/notifications`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { level: 1, name: "การแจ้งเตือน" }).waitFor();
+    check(await page.getByRole("button", { name: "ทั้งหมด", exact: true }).getAttribute("aria-pressed") === "true",
+      "Notifications default All filter was not authoritative.");
+    const unreadFilterResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/v1/notifications" &&
+      new URL(response.url()).searchParams.get("filter") === "UNREAD");
+    await page.getByRole("button", { name: "ยังไม่ได้อ่าน" }).click();
+    check((await unreadFilterResponse).status() === 200,
+      "Notifications Unread filter did not load from the server.");
+    check(await page.getByRole("button", { name: "ยังไม่ได้อ่าน" }).getAttribute("aria-pressed") === "true",
+      "Notifications Unread filter was not selected accessibly.");
+    const allFilterResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/v1/notifications" &&
+      new URL(response.url()).searchParams.get("filter") === "ALL");
+    await page.getByRole("button", { name: "ทั้งหมด", exact: true }).click();
+    check((await allFilterResponse).status() === 200,
+      "Notifications All filter did not load from the server.");
+    const loadMore = page.getByRole("button", { name: "โหลดเพิ่มเติม" });
+    await loadMore.waitFor();
+    const beforeRows = await page.locator("[data-notification-id]").count();
+    await loadMore.click();
+    await page.waitForFunction((count) => document.querySelectorAll("[data-notification-id]").length > count, beforeRows);
+    check(await page.locator("[data-notification-id]").count() > beforeRows,
+      "Notifications Load More did not append a deduplicated server page.");
+    const unavailable = producerItems.find((item) => item.targetRoute === null &&
+      item.type !== "CREATOR_FOLLOW_CREATED");
+    check(unavailable, "Notifications fixture did not expose an unavailable target.");
+    const unavailableRow = page.locator(`[data-notification-id="${unavailable.id}"]`);
+    await unavailableRow.waitFor();
+    check(await unavailableRow.getByRole("link", { name: /เปิดปลายทาง/ }).count() === 0 &&
+      await unavailableRow.getByText(/ไม่พร้อมให้บริการ/).count() === 1,
+    "Notifications unavailable target exposed an action or unsafe detail.");
+
+    const reply = producerItems.find((item) => item.type === "COMMENT_REPLY_CREATED" && item.readAt === null);
+    check(reply, "Notifications Reply item was unavailable for mark-one E2E.");
+    const replyRow = page.locator(`[data-notification-id="${reply.id}"]`);
+    await replyRow.waitFor();
+    const replyTarget = replyRow.getByRole("link", { name: /เปิดปลายทาง/ });
+    check(await replyTarget.count() === 1, "Notifications Reply lacked its safe deep link.");
+    await replyTarget.click();
+    await page.waitForURL((url) => url.origin === baseUrl && url.pathname !== "/notifications");
+    check(!page.url().includes("%25"), "Notifications Unicode deep link was double encoded.");
+    const marked = await waitForNotificationState(creator.tokens.accessToken,
+      (value) => value.items.some((item) => item.id === reply.id && item.readAt !== null), "mark-one state");
+    workerWaits.push(marked.durationMs);
+
+    await page.goto(`${baseUrl}/notifications`, { waitUntil: "networkidle" });
+    const markAllResponse = page.waitForResponse((response) => response.request().method() === "PUT" &&
+      new URL(response.url()).pathname === "/api/v1/notifications/read-all");
+    await page.getByRole("button", { name: "อ่านทั้งหมดแล้ว" }).click();
+    check((await markAllResponse).status() === 204, "Notifications mark-all did not use the real 204 endpoint.");
+    await createComment(storyRoute, actor, `Notifications post-cutoff ${runId}`);
+    const postCutoff = await waitForNotificationState(creator.tokens.accessToken,
+      (value) => value.items.filter((item) => item.readAt === null).length === 1,
+      "a post-cutoff unread Notification");
+    workerWaits.push(postCutoff.durationMs);
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("link", { name: /ยังไม่ได้อ่าน 1 รายการ/ }).waitFor();
+    await page.getByRole("button", { name: "ยังไม่ได้อ่าน" }).click();
+    await page.locator("[data-notification-id]").first().waitFor();
+    check(await page.locator("[data-notification-id]").count() === 1,
+      "Notifications post-cutoff item was erased by mark-all reconciliation.");
+    evidence.mark("notificationReadStateVerified");
+
+    await page.getByRole("button", { name: "ทั้งหมด", exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload({ waitUntil: "networkidle" });
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+      "Notifications mobile view introduced horizontal scrolling.");
+    const controlsReachable = await page.locator("a,button").evaluateAll((elements) => elements
+      .filter((element) => element.getClientRects().length > 0)
+      .every((element) => element.getAttribute("aria-label") || element.textContent?.trim()));
+    check(controlsReachable, "Notifications mobile view exposed an unnamed control.");
+    await page.keyboard.press("Tab");
+    check(await page.evaluate(() => document.activeElement instanceof HTMLAnchorElement ||
+      document.activeElement instanceof HTMLButtonElement), "Notifications controls were not keyboard reachable.");
+    check(await page.locator("time").count() > 0 && await page.getByText(/อ่านแล้ว|ยังไม่ได้อ่าน/).count() > 0,
+      "Notifications state or timestamps relied on color alone.");
+    check(await page.evaluate(() => Object.keys(localStorage).every((key) => !key.toLowerCase().includes("notification"))),
+      "Notifications wrote private browser persistence.");
+    evidence.mark("notificationAccessibilityVerified");
+
+    const creatorFirstId = postCutoff.page.items.find((item) => item.readAt === null)?.id;
+    let releaseAFeed;
+    let confirmAFeedStarted;
+    const aFeedStarted = new Promise((resolve) => { confirmAFeedStarted = resolve; });
+    const releaseAFeedPromise = new Promise((resolve) => { releaseAFeed = resolve; });
+    let heldAFeed = false;
+    const holdAFeed = async (route) => {
+      if (!heldAFeed && route.request().headers().authorization === `Bearer ${creator.tokens.accessToken}`) {
+        heldAFeed = true;
+        confirmAFeedStarted();
+        await releaseAFeedPromise;
+      }
+      await route.continue().catch(() => undefined);
+    };
+    await context.route("**/api/v1/notifications?**", holdAFeed);
+    await page.getByRole("button", { name: "ยังไม่ได้อ่าน" }).click();
+    await aFeedStarted;
+    const bFeed = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/v1/notifications" &&
+      response.request().headers().authorization === `Bearer ${actor.tokens.accessToken}`);
+    await replaceBrowserSession(page, actor.tokens);
+    releaseAFeed();
+    check((await bFeed).status() === 200, "User B Notifications feed did not replace held User A ownership.");
+    await context.unroute("**/api/v1/notifications?**", holdAFeed);
+    check(!creatorFirstId || await page.locator(`[data-notification-id="${creatorFirstId}"]`).count() === 0,
+      "Held User A response overwrote User B Notifications state.");
+
+    await page.evaluate(() => {
+      for (const key of Object.keys(localStorage)) if (key.startsWith("novelverse_")) localStorage.removeItem(key);
+      window.dispatchEvent(new Event("novelverse:session-changed"));
+    });
+    await page.getByRole("link", { name: /การแจ้งเตือน/ }).waitFor({ state: "detached" });
+    await replaceBrowserSession(page, actor.tokens);
+    await page.goto(`${baseUrl}/notifications`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { level: 1, name: "การแจ้งเตือน" }).waitFor();
+    check(!creatorFirstId || await page.locator(`[data-notification-id="${creatorFirstId}"]`).count() === 0,
+      "User B received User A private inbox content.");
+
+    await page.evaluate(() => {
+      localStorage.setItem("novelverse_access_token", "invalid-notifications-access");
+      localStorage.setItem("novelverse_refresh_token", "invalid-notifications-refresh");
+      window.dispatchEvent(new Event("novelverse:session-changed"));
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("next") === "/notifications");
+    check(!creatorFirstId || !(await page.locator("body").innerText()).includes(creatorFirstId),
+      "Terminal Notifications 401 retained private inbox content.");
+    evidence.mark("notificationSessionIsolationVerified");
+
+    let quotaResult = null;
+    for (let attempt = 0; attempt < 140 && !quotaResult; attempt += 1) {
+      const result = await apiCall("/api/v1/notifications/unread-count", { token: quotaUser.tokens.accessToken });
+      if (result.response.status === 429) quotaResult = result;
+    }
+    check(quotaResult?.response.headers.get("content-type")?.startsWith("application/problem+json") &&
+      quotaResult.response.headers.get("retry-after"), "Notifications browser quota did not expose 429 Retry-After.");
+    rateLimitRetryAfterSeconds = Number(quotaResult.response.headers.get("retry-after"));
+
+    const finalEvidence = requireSuccessfulNotificationsEvidence(evidence, { mockFallbackDetected: false });
+    return { ...finalEvidence, durationMs: Date.now() - startedAt,
+      workerMaterializationWaitMs: workerWaits, rateLimitWaitSeconds, rateLimitRetryAfterSeconds };
+  } finally {
+    for (const context of contexts) await context.close().catch(() => undefined);
+    if (moderator) databaseCommand(`UPDATE users SET role = 'User' WHERE id = ${sqlLiteral(moderator.id)}::uuid;`);
+  }
+}
+
 function crc32(buffer) {
   let crc = 0xffffffff;
   for (const byte of buffer) {
@@ -719,12 +1063,22 @@ async function run() {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   const browser = await chromium.launch({ headless: true });
+  if (process.env.NOVELVERSE_NOTIFICATIONS_ONLY === "1" || process.argv.includes("--notifications-only")) {
+    try {
+      const notifications = await runNotificationsE2E(browser);
+      console.log(JSON.stringify({ result: "PASS", notificationsOnly: true, ...notifications }, null, 2));
+    } finally {
+      await browser.close();
+    }
+    return;
+  }
   const context = await browser.newContext({ locale: "th-TH" });
   const page = await context.newPage();
   const engagementStarts = [];
   const pendingEngagementResponses = new Set();
   const engagementResponseErrors = [];
   let communityResult = null;
+  let notificationsResult = null;
   page.on("response", (response) => {
     if (response.request().method() === "POST" &&
         /\/api\/v1\/engagement\/sessions$/.test(new URL(response.url()).pathname) &&
@@ -749,14 +1103,16 @@ async function run() {
     while (pendingEngagementResponses.size) await Promise.all([...pendingEngagementResponses]);
     if (engagementResponseErrors.length) throw engagementResponseErrors.shift();
   }
-  page.on("requestfailed", (request) => {
-    console.error(`Request failed: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? "unknown"})`);
-  });
-  page.on("response", (response) => {
-    if (response.url().startsWith("http://localhost:5039/")) {
-      console.error(`API ${response.status()}: ${response.request().method()} ${new URL(response.url()).pathname}`);
-    }
-  });
+  if (!quiet) {
+    page.on("requestfailed", (request) => {
+      console.error(`Request failed: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? "unknown"})`);
+    });
+    page.on("response", (response) => {
+      if (response.url().startsWith("http://localhost:5039/")) {
+        console.error(`API ${response.status()}: ${response.request().method()} ${new URL(response.url()).pathname}`);
+      }
+    });
+  }
   try {
     await fs.writeFile(imagePath, createPng());
     await page.goto(`${baseUrl}/login`, { waitUntil: "networkidle" });
@@ -1393,6 +1749,7 @@ async function run() {
     const viewerE = await createSocialUser("dashboard-viewer-e", `Dashboard Viewer E ${runId}`);
     const viewerF = await createSocialUser("dashboard-viewer-f", `Dashboard Viewer F ${runId}`);
     const viewerG = await createSocialUser("dashboard-viewer-g", `Dashboard Viewer G ${runId}`);
+    notificationsResult = await runNotificationsE2E(browser);
     communityResult = await runCommunityDiscussionE2E(browser, {
       storyPath: publicStoryPath,
       storyRoute: `/api/v1/stories/${creatorSlug}/browser-e2e-story-${runId}/comments`,
@@ -1786,6 +2143,8 @@ async function run() {
     await userBPage.getByRole("button", { name: "Unlike", exact: true }).waitFor();
     await userBPage.getByRole("button", { name: "Following", exact: true }).waitFor();
 
+    const unreadCountRoute = "**/api/v1/notifications/unread-count";
+    await userBPage.route(unreadCountRoute, (route) => route.abort("blockedbyclient"));
     await userBPage.evaluate(() => {
       localStorage.setItem("novelverse_access_token", "invalid-e2e-access");
       localStorage.setItem("novelverse_refresh_token", "invalid-e2e-refresh");
@@ -1793,9 +2152,11 @@ async function run() {
     const invalidatedMutation = userBPage.waitForResponse((response) =>
       response.request().method() === "DELETE" &&
       new URL(response.url()).pathname === `/api/v1/stories/${storyId}/like`);
-    await userBPage.getByRole("button", { name: "Unlike", exact: true }).click();
+    await userBPage.getByRole("button", { name: "Unlike", exact: true })
+      .evaluate((button) => button.click());
     check((await invalidatedMutation).status() === 401,
       "Invalidated Social session did not return 401.");
+    await userBPage.unroute(unreadCountRoute);
     await userBPage.getByRole("button", { name: "Like", exact: true }).waitFor();
     await userBPage.getByRole("button", { name: "Follow", exact: true }).waitFor();
     check(await userBPage.getByRole("button", { name: "Like", exact: true }).getAttribute("aria-pressed") === "false" &&
@@ -2127,8 +2488,19 @@ async function run() {
         communityResult?.communityMutationConcurrencyVerified === true,
       communityLimiterAssertionsVerified:
         communityResult?.communityLimiterAssertionsVerified === true,
+      notificationBellVerified: notificationsResult?.notificationBellVerified === true,
+      notificationPollingVerified: notificationsResult?.notificationPollingVerified === true,
+      notificationReadStateVerified: notificationsResult?.notificationReadStateVerified === true,
+      notificationSessionIsolationVerified: notificationsResult?.notificationSessionIsolationVerified === true,
+      notificationProducerFlowVerified: notificationsResult?.notificationProducerFlowVerified === true,
+      notificationAccessibilityVerified: notificationsResult?.notificationAccessibilityVerified === true,
+      notificationsDurationMs: notificationsResult?.durationMs ?? null,
+      notificationsWorkerMaterializationWaitMs: notificationsResult?.workerMaterializationWaitMs ?? [],
+      notificationsRateLimitWaitSeconds: notificationsResult?.rateLimitWaitSeconds ?? null,
+      notificationsRateLimitRetryAfterSeconds: notificationsResult?.rateLimitRetryAfterSeconds ?? null,
       draftExcludedFromDiscovery: true,
-      mockFallbackDetected: communityResult?.mockFallbackDetected ?? true,
+      mockFallbackDetected: (communityResult?.mockFallbackDetected ?? true) ||
+        (notificationsResult?.mockFallbackDetected ?? true),
     }, null, 2));
   } catch (error) {
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);
@@ -2143,6 +2515,6 @@ async function run() {
 }
 
 run().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
   process.exitCode = 1;
 });
