@@ -89,7 +89,7 @@ describe("verified NovelVerseApi client", () => {
     }));
     await getCreatorDashboard();
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe("http://localhost:5039/api/v1/creator/dashboard");
+    expect(url).toBe("/api/v1/creator/dashboard");
     expect(init?.cache).toBe("no-store");
     expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer dashboard-token");
   });
@@ -119,9 +119,9 @@ describe("verified NovelVerseApi client", () => {
       contentRating: "TEEN", sort: "RELEVANCE",
     });
     const [url, init] = vi.mocked(fetch).mock.calls[0];
-    expect(url).toBe("http://localhost:5039/api/v1/stories?page=2&pageSize=12&sort=RELEVANCE&q=%E0%B9%81%E0%B8%A1%E0%B8%A7+%E0%B9%84%E0%B8%97%E0%B8%A2&storyType=COMIC&categorySlug=fantasy&tag=magic&creatorSlug=creator-one&languageCode=th&contentRating=TEEN");
+    expect(url).toBe("/api/v1/stories?page=2&pageSize=12&sort=RELEVANCE&q=%E0%B9%81%E0%B8%A1%E0%B8%A7+%E0%B9%84%E0%B8%97%E0%B8%A2&storyType=COMIC&categorySlug=fantasy&tag=magic&creatorSlug=creator-one&languageCode=th&contentRating=TEEN");
     expect(new Headers(init?.headers).has("Authorization")).toBe(false);
-    expect(result.items[0].coverUrl).toBe("http://localhost:5039/api/v1/media-assets/m1/content");
+    expect(result.items[0].coverUrl).toBe("/api/v1/media-assets/m1/content");
   });
 
   it("single-encodes raw Thai Story and Episode slugs for every public content API", async () => {
@@ -145,12 +145,12 @@ describe("verified NovelVerseApi client", () => {
     const urls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
     const encodedStory = encodeURIComponent(storySlug);
     const encodedEpisode = encodeURIComponent(episodeSlug);
-    expect(urls[0]).toBe(`http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}`);
-    expect(urls[1]).toBe(`http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes?page=1&pageSize=100`);
+    expect(urls[0]).toBe(`/api/v1/stories/${creatorSlug}/${encodedStory}`);
+    expect(urls[1]).toBe(`/api/v1/stories/${creatorSlug}/${encodedStory}/episodes?page=1&pageSize=100`);
     expect(urls.slice(2)).toEqual([
-      `http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/content`,
-      `http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/comic-pages`,
-      `http://localhost:5039/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/video-content`,
+      `/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/content`,
+      `/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/comic-pages`,
+      `/api/v1/stories/${creatorSlug}/${encodedStory}/episodes/${encodedEpisode}/video-content`,
     ]);
     expect(urls.every((url) => url.includes("%E0") && !url.includes("%25E0"))).toBe(true);
   });
@@ -204,7 +204,7 @@ describe("verified NovelVerseApi client", () => {
     await expect(publishEpisode("s1", "e1")).rejects.toMatchObject({ status: 404 });
     vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ status: 409, detail: "Episode cannot be published." }, 409));
     await expect(publishEpisode("s1", "e1")).rejects.toMatchObject({ status: 409 });
-    expect(vi.mocked(fetch).mock.calls[1][0]).toBe("http://localhost:5039/api/v1/creator/stories/s1/episodes/e1/publish");
+    expect(vi.mocked(fetch).mock.calls[1][0]).toBe("/api/v1/creator/stories/s1/episodes/e1/publish");
     expect(vi.mocked(fetch).mock.calls[1][1]?.method).toBe("POST");
   });
 

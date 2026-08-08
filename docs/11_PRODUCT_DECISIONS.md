@@ -3,9 +3,9 @@
 | รายการ | ค่า |
 |---|---|
 | Purpose | รวบรวม decision ที่ยืนยันแล้วและแยกเรื่องที่ยังต้องอนุมัติ |
-| Current Status | Community v1 is released at `v1.3.0-alpha.1`; Notifications A1/A2/B are complete and Notifications C process evidence is closed; independent final approval awaits remediation/re-review |
-| Version | v1.3.0-alpha.1 architecture baseline |
-| Last Updated | 3 สิงหาคม 2569 |
+| Current Status | Notifications v1 is released at `v1.4.0-alpha.1`; Phase 7 Deployment A and B foundations are complete locally |
+| Version | v1.4.0-alpha.1 architecture baseline |
+| Last Updated | 8 สิงหาคม 2569 |
 | Author | Codex — Lead Software Architect and Technical Documentation Engineer |
 
 ## Table of Contents
@@ -13,8 +13,9 @@
 1. [Confirmed Decisions](#confirmed-decisions)
 2. [Confirmed Community Decisions](#confirmed-community-decisions)
 3. [Confirmed Notifications Decisions](#confirmed-notifications-decisions)
-4. [Open Decisions](#open-decisions)
-5. [Decision Governance](#decision-governance)
+4. [Confirmed Deployment Decisions](#confirmed-deployment-decisions)
+5. [Open Decisions](#open-decisions)
+6. [Decision Governance](#decision-governance)
 
 ## Confirmed Decisions
 
@@ -66,7 +67,8 @@ closed with the approved policy-neutral Community v1 model.
 ## Confirmed Notifications Decisions
 
 These independently reviewed decisions define the implemented Notifications v1
-boundary. A1/A2/B are complete and Notifications C process evidence is closed; independent final approval awaits remediation/re-review.
+boundary. Notifications v1 passed Independent Final Approval and is merged and
+released at `v1.4.0-alpha.1`.
 
 | รหัส | การตัดสินใจ | หลักฐาน |
 |---|---|---|
@@ -79,6 +81,24 @@ boundary. A1/A2/B are complete and Notifications C process evidence is closed; i
 | PD-041 | Read state is server `ReadAt`, unread count is exact and derived, feed pagination is signed recipient-bound keyset, and frontend delivery uses visible-tab polling | read-state ADR; `NOTIFICATIONS_FRONTEND_CONTRACT.md` |
 | PD-042 | Actor unlink neutralizes identity, recipient unlink removes addressed inbox/outbox rows, safety data never enters Notifications, and no fixed retention/expiry is invented | backend Notifications architecture |
 
+## Confirmed Deployment Decisions
+
+These decisions bind Phase 7 architecture. Deployment A containers/health and
+Deployment B CI/migration/artifact foundations are implemented and locally
+validated, but workflows have not run remotely and no cloud resource,
+environment deployment, or operational runbook is claimed.
+
+| รหัส | การตัดสินใจ | หลักฐาน |
+|---|---|---|
+| PD-043 | Azure Container Apps with managed PostgreSQL 16 is the Beta and initial Production target; ACA custom-domain rule-based routing owns the initial same-origin `/api` split, while AKS and Front Door/WAF are deferred until measured requirements justify their operational cost | Backend `DEPLOYMENT_ARCHITECTURE.md`; platform/topology ADR |
+| PD-044 | Beta uses one steady API replica with the API-hosted Notifications worker; Production uses horizontally scaled API only after a shared limiter and moves worker execution to a dedicated multi-replica workload without changing outbox semantics | Backend Deployment architecture and platform/topology ADR |
+| PD-045 | Deploy reviewed immutable artifacts once and promote identical digests across environments; a version-aligned serialized one-shot migration job applies schema changes, never API startup | migrations/promotion ADR |
+| PD-046 | Production browser API traffic uses same-origin `/api` so a single frontend image can be promoted unchanged; `NEXT_PUBLIC_*` is public build-time configuration and never carries secrets | `DEPLOYMENT_FRONTEND_CONTRACT.md`; migrations/promotion ADR |
+| PD-047 | Key Vault/Managed Identity is the target secret model; all API replicas share one versioned current/previous cursor HMAC keyset and use a two-phase audited rotation | configuration/security/operations ADR |
+| PD-048 | API liveness is dependency-free and readiness checks required configuration plus PostgreSQL; the existing `/api/v1/health` remains service metadata and is not reclassified as database readiness | Backend `DEPLOYMENT_ARCHITECTURE.md` |
+| PD-049 | Managed backup/PITR, isolated restore tests, privacy-safe observability, internal audited dead-letter replay, and durable account-deletion orchestration are required operational boundaries; numeric retention/SLA/RPO/RTO/legal-hold values require separate owner approval | Backend `DEPLOYMENT_ARCHITECTURE.md` |
+| PD-050 | The current local media filesystem is not an ephemeral-container Production store; durable object/blob or explicitly managed persistent storage must be selected and proven before media-enabled Beta | Backend `DEPLOYMENT_ARCHITECTURE.md` |
+
 ## Open Decisions
 
 | รหัส | เรื่องที่ต้องอนุมัติ | สถานะ |
@@ -89,7 +109,7 @@ boundary. A1/A2/B are complete and Notifications C process evidence is closed; i
 | OD-004 | suitability self-rating เดียวเพียงพอหรือไม่ | Reviewing |
 | OD-005 | Member hide comment ต้อง reversible และมี audit อย่างไร | Resolved: author delete is irreversible; platform moderator Hide/Restore is reversible and audited; Creator has report-only authority |
 | OD-006 | Authentication provider, account linking และ role governance | ยังไม่ได้กำหนด |
-| OD-007 | Database/API/hosting/storage architecture | ยังไม่ได้กำหนด |
+| OD-007 | Database/API/hosting/storage architecture | Hosting and managed PostgreSQL direction resolved by PD-043; durable media provider, subscription/region/budget, and implementation remain open Beta gates |
 | OD-008 | Ranking, search และ editorial selection rules | ยังไม่ได้กำหนด |
 | OD-009 | Content policy, moderation SLA, appeal และ notification | Notification v1 public-safe outcome behavior is resolved by PD-036/PD-042; content policy, appeals, and moderator SLA remain open |
 | OD-010 | Upload constraints, ownership/licensing และ media processing | ยังไม่ได้กำหนด |
@@ -98,7 +118,7 @@ boundary. A1/A2/B are complete and Notifications C process evidence is closed; i
 | OD-013 | นิยาม ราคา สิทธิ์ และ lifecycle ของ Ad-free membership | ยังไม่ได้กำหนด |
 | OD-014 | ผู้ให้บริการ เนื้อหาโฆษณา frequency cap การวัดผล และ privacy/consent | ยังไม่ได้กำหนด |
 | OD-015 | Community safety-record post-resolution clock, duration, legal-hold authority/release semantics, audit expiry, purge operation/ownership, and privileged staff-account retention | Deferred Beta/Production launch gate; not an implementation blocker under PD-030. The unapproved 24-month proposal was rejected during independent review |
-| OD-016 | Notification, processed-outbox, and dead-letter retention clocks; legal-hold applicability; dead-letter operator ownership/SLA; monitoring thresholds; shared cursor-secret operations; distributed rate limits | Notifications Beta/Production launch gates; policy-neutral implementation may begin after independent architecture approval |
+| OD-016 | Notification, processed-outbox, and dead-letter retention clocks; legal-hold applicability; dead-letter operator ownership/SLA; monitoring thresholds; shared cursor-secret operations; distributed rate limits | Architecture direction resolved by PD-044/PD-047/PD-049; owner names, numeric policy values, implemented controls, and launch approval remain Beta/Production gates |
 
 ## Decision Governance
 

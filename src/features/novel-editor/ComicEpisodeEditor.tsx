@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { apiErrorMessage, getComicPages, getEpisode, getStory, publishEpisode,
   replaceComicPages, uploadComicPage } from "./api";
+import { toApiResourceUrl } from "@/lib/api-url";
 import type { ComicPage, Episode, Story } from "./types";
 import styles from "./novelEditor.module.css";
 
@@ -24,8 +25,7 @@ export function ComicEpisodeEditor({ storyId, episodeId }: { storyId: string; ep
     setSaving(true); setMessage("");
     try {
       const result = await replaceComicPages(storyId, episodeId, next.map((page) => page.mediaAssetId));
-      const apiRoot = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5039";
-      setPages(result.pages.map((page) => ({ ...page, mediaUrl: new URL(page.mediaUrl, apiRoot).toString() })));
+      setPages(result.pages.map((page) => ({ ...page, mediaUrl: toApiResourceUrl(page.mediaUrl)! })));
       setMessage("บันทึกหน้าการ์ตูนแล้ว"); return true;
     } catch (error) { setMessage(apiErrorMessage(error)); return false; }
     finally { setSaving(false); }

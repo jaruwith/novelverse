@@ -3,9 +3,9 @@
 | รายการ | ค่า |
 |---|---|
 | Purpose | จัด milestone ตาม phase ที่กำหนด โดยยึดสถานะจาก repository และไม่กำหนดวันส่งมอบเอง |
-| Current Status | Community v1 is released at `v1.3.0-alpha.1`; Notifications A1/A2/B are complete and Notifications C process evidence is closed; independent final approval awaits remediation/re-review |
-| Version | v1.3.0-alpha.1 architecture baseline |
-| Last Updated | 3 สิงหาคม 2569 |
+| Current Status | Notifications v1 is released at `v1.4.0-alpha.1`; Phase 7 Deployment A and B foundations are complete locally |
+| Version | v1.4.0-alpha.1 architecture baseline |
+| Last Updated | 8 สิงหาคม 2569 |
 | Author | Codex — Lead Software Architect and Technical Documentation Engineer |
 
 ## Table of Contents
@@ -80,20 +80,28 @@
 
 ## Phase 6 — Notifications
 
-**สถานะ:** Notifications A1/A2/B are complete and Notifications C process evidence is closed; independent final approval awaits remediation/re-review
+**สถานะ:** Notifications v1 passed Independent Final Approval and is merged and released at `v1.4.0-alpha.1`
 
 - V1 is an authenticated in-app inbox for six approved low-fan-out event families
 - PostgreSQL transactional outbox and an API-hosted at-least-once worker are selected; source mutation and outbox intent commit atomically
 - Dedicated `/notifications`, unread polling/read state, privacy unlink, moderation-safe wording, bounded pagination, and no mock/persistence are required
 - Story Like and follower publication fan-out, email/push/SMS, preferences, grouping, realtime, and dismissal remain deferred
 - Notifications B delivered the real API-backed Bell, `/notifications`, polling, read state, accessibility, mobile behavior, and two consecutive real-stack Browser E2E passes
-- Notifications C process evidence is closed; independent final approval remains separate, and worker/privacy correctness remains proven in A1/A2 rather than deferred
+- Notifications C process evidence and Independent Final Approval are closed; worker/privacy correctness remains proven in A1/A2 rather than deferred
 - Beta/Production launch remains gated on retention/legal-hold policy, dead-letter operational ownership/SLA, monitoring thresholds, shared cursor-secret deployment, and distributed rate limiting when horizontally scaled
 
 ## Phase 7 — Deployment
 
-**สถานะ:** ยังไม่เริ่ม
+**สถานะ:** Deployment architecture complete; Deployment A and B implemented and locally validated
 
-- กำหนด environments, CI/CD, hosting, domain, storage/CDN, secrets, backup, monitoring และ incident response
-- ทำ performance, security, accessibility และ launch readiness review
-- Platform, budget, SLO และ launch date: **ยังไม่ได้กำหนด**
+- Selected architecture: Azure Container Apps, managed PostgreSQL 16, Key Vault/Managed Identity, immutable artifacts, and same-origin frontend API routing
+- Deployment A: **complete locally** — container builds, local container proof,
+  explicit mountable media boundary, liveness/readiness, bounded shutdown, and
+  image hardening; durable Production media remains a Deployment C gate
+- Deployment B: **complete locally** — secretless PR gates, immutable main/tag
+  images, exact-archive scan/SBOM, GitHub provenance structure, coordinated
+  manifests, version-aligned serialized migration job, and clean-database proof;
+  first hosted CI/attestation evidence awaits a reviewed commit/push
+- Deployment C: Development/Beta resources, private networking, secrets, single-API hosted-worker Beta topology, monitoring, alerts, and operational ownership
+- Deployment D: dedicated Production worker, shared limiter, deletion orchestration, retention/legal hold, backup/restore proof, capacity review, runbooks, and final deployment validation
+- Beta and Production readiness remain separate approvals. Platform subscription/region/budget, owners, SLO/SLA, RPO/RTO, retention values, and launch date are not yet approved

@@ -1,0 +1,134 @@
+name: Coordinated release Browser E2E
+
+on:
+  push:
+    branches: [feature/deployment-architecture]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      backend_ref:
+        description: Exact public Backend commit or coordinated tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coordinated-browser-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  browser-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: novelverse_e2e
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: e2e-only-not-production
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d novelverse_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      ConnectionStrings__NovelVerse: Host=127.0.0.1;Port=5432;Database=novelverse_e2e;Username=postgres;Password=e2e-only-not-production
+      NOVELVERSE_MIGRATION_EXPECTED_DATABASE: novelverse_e2e
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://127.0.0.1:5039
+      Notifications__Worker__Enabled: "true"
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:5039
+    steps:
+      - name: Check out exact Frontend release source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: frontend
+
+      - name: Check out version-aligned public Backend source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: jaruwith/NovelVerseApi
+          ref: ${{ inputs.backend_ref || github.ref_name }}
+          path: backend
+
+      - name: Verify exact coordinated source identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          frontend_commit="$(git -C frontend rev-parse HEAD)"
+          backend_commit="$(git -C backend rev-parse HEAD)"
+          test "$frontend_commit" = "$GITHUB_SHA"
+          echo "Frontend commit: $frontend_commit"
+          echo "Backend commit: $backend_commit"
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: 10.0.302
+
+      - name: Set up pinned Node LTS
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Backend and apply the version-aligned migration artifact
+        working-directory: backend
+        run: |
+          dotnet restore NovelVerseApi.slnx
+          dotnet build NovelVerseApi.slnx --configuration Release --no-restore
+          dotnet run --project NovelVerse.Migrations/NovelVerse.Migrations.csproj --configuration Release --no-build
+
+      - name: Install Frontend and Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Start real stack and run complete Browser E2E
+        shell: bash
+        env:
+          NOVELVERSE_E2E_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          NOVELVERSE_E2E_POSTGRES_USER: postgres
+          NOVELVERSE_E2E_POSTGRES_DATABASE: novelverse_e2e
+        run: |
+          set -euo pipefail
+          cleanup() {
+            status=$?
+            if [[ "$status" != 0 ]]; then
+              echo "::group::Sanitized API failure log"
+              sed -E 's/(Password=)[^;[:space:]]+/\1***REDACTED***/Ig' /tmp/novelverse-api.log 2>/dev/null || true
+              echo "::endgroup::"
+              echo "::group::Frontend failure log"
+              tail -n 200 /tmp/novelverse-frontend.log 2>/dev/null || true
+              echo "::endgroup::"
+            fi
+            kill "${FRONTEND_PID:-}" "${API_PID:-}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          (cd backend/NovelVerse.Api/bin/Release/net10.0 && exec dotnet NovelVerse.Api.dll) > /tmp/novelverse-api.log 2>&1 &
+          API_PID=$!
+          (cd frontend && npm run dev > /tmp/novelverse-frontend.log 2>&1) &
+          FRONTEND_PID=$!
+          for attempt in $(seq 1 120); do
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "Release API exited before readiness." >&2
+              exit 1
+            fi
+            if curl --fail --silent http://localhost:5039/api/v1/health/ready >/dev/null &&
+               curl --fail --silent http://localhost:3000/login >/dev/null; then
+              break
+            fi
+            if [[ "$attempt" == 120 ]]; then
+              echo "Real stack did not become healthy." >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          node frontend/scripts/test-local-vertical-slice.mjs
