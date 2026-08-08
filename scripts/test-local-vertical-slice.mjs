@@ -1304,8 +1304,12 @@ async function run() {
     await page.getByText(testText).waitFor();
     await page.getByRole("link", { name: /Next: Navigation Episode 2/ }).first().click();
     await page.getByText(`Navigation content 2 ${runId}`, { exact: true }).waitFor();
+    await page.waitForFunction((title) => document.activeElement?.textContent?.trim() === title,
+      novelNavigationFixture.second.title);
     await page.keyboard.press("ArrowLeft");
     await page.getByText(testText).waitFor();
+    await page.waitForFunction((title) => document.activeElement?.textContent?.trim() === title,
+      `Browser E2E Episode ${runId}`);
     await page.keyboard.press("ArrowRight");
     await page.getByText(`Navigation content 2 ${runId}`, { exact: true }).waitFor();
     await page.getByRole("link", { name: /Back to Story/ }).first().click();
