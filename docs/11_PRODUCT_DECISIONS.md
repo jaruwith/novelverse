@@ -3,17 +3,18 @@
 | รายการ | ค่า |
 |---|---|
 | Purpose | รวบรวม decision ที่ยืนยันแล้วและแยกเรื่องที่ยังต้องอนุมัติ |
-| Current Status | Community v1 policy-neutral retention decision is approved for implementation; formal retention and legal-hold operations remain a Beta/Production launch gate |
-| Version | v1.2.0-alpha.1 architecture baseline |
-| Last Updated | 2 สิงหาคม 2569 |
+| Current Status | Community v1 is released at `v1.3.0-alpha.1`; Notifications A1/A2/B are complete and Notifications C process evidence is closed; independent final approval awaits remediation/re-review |
+| Version | v1.3.0-alpha.1 architecture baseline |
+| Last Updated | 3 สิงหาคม 2569 |
 | Author | Codex — Lead Software Architect and Technical Documentation Engineer |
 
 ## Table of Contents
 
 1. [Confirmed Decisions](#confirmed-decisions)
 2. [Confirmed Community Decisions](#confirmed-community-decisions)
-3. [Open Decisions](#open-decisions)
-4. [Decision Governance](#decision-governance)
+3. [Confirmed Notifications Decisions](#confirmed-notifications-decisions)
+4. [Open Decisions](#open-decisions)
+5. [Decision Governance](#decision-governance)
 
 ## Confirmed Decisions
 
@@ -21,8 +22,8 @@
 |---|---|---|
 | PD-001 | Public Member Profile และ Creator Profile ใช้หน้าเดียวกัน | `WIREFRAME_DECISIONS.md`, หน้า profile |
 | PD-002 | Member ทุกคนเผยแพร่ได้ ไม่มี Creator role แยก | `WIREFRAME_DECISIONS.md`, Login/Dashboard |
-| PD-003 | MVP ไม่มี notification center | `WIREFRAME_DECISIONS.md` |
-| PD-004 | Following page ใช้แทน notification center | `WIREFRAME_DECISIONS.md`, `/following` |
+| PD-003 | Historical MVP decision: ไม่มี notification center; superseded for the separate Notifications v1 architecture by PD-035 | `WIREFRAME_DECISIONS.md`; `NOTIFICATIONS_FRONTEND_CONTRACT.md` |
+| PD-004 | Historical MVP decision: Following page ใช้แทน notification center; superseded by keeping `/following` distinct from `/notifications` under PD-040 | `WIREFRAME_DECISIONS.md`; `/following`; `NOTIFICATIONS_FRONTEND_CONTRACT.md` |
 | PD-005 | Historical MVP wireframe decision: Like ใช้กับ chapter เท่านั้น; superseded for Community Comment Like by PD-019 while Episode engagement remains unchanged | `WIREFRAME_DECISIONS.md`, readers; Community architecture documents |
 | PD-006 | Follow ใช้กับ story เท่านั้น | `WIREFRAME_DECISIONS.md`, story detail |
 | PD-007 | Historical MVP wireframe decision: Comment เป็น flat ไม่มี reply และ comment like; superseded for Community v1 by PD-019 | `WIREFRAME_DECISIONS.md`, CommentList; `COMMUNITY_FRONTEND_CONTRACT.md` |
@@ -62,6 +63,22 @@ closed with the approved policy-neutral Community v1 model.
 | PD-033 | Community B is the shared Story/NOVEL/COMIC/VIDEO Discussion UI only; Comment Likes, Comment reports, moderator Hide/Restore, and privacy-unlink execution are delivered separately by Community C | `COMMUNITY_B_FRONTEND_DISCUSSION.md`; `08_ROADMAP.md` |
 | PD-034 | Community C uses relationship-derived Comment Likes, restricted report-time evidence, platform-moderator COMMENT Hide/Restore, and immediate transactional public privacy unlink; it adds no counter column, creator authority, or automatic evidence expiry | `COMMUNITY_C_MODERATION_PRIVACY_FOUNDATION.md`; `COMMUNITY_C_FRONTEND_MODERATION.md` |
 
+## Confirmed Notifications Decisions
+
+These independently reviewed decisions define the implemented Notifications v1
+boundary. A1/A2/B are complete and Notifications C process evidence is closed; independent final approval awaits remediation/re-review.
+
+| รหัส | การตัดสินใจ | หลักฐาน |
+|---|---|---|
+| PD-035 | Notifications v1 is authenticated in-app only; email, push, SMS, preferences, grouping, dismissal, and realtime are deferred | `NOTIFICATIONS_FRONTEND_CONTRACT.md`; backend delivery-model ADR |
+| PD-036 | Reply, first lifetime Comment Like per actor/Comment, creator-owned root Comment, first lifetime Follow per actor/Creator, terminal report outcome, and moderation visibility outcome are the exact v1 event families | backend Notifications architecture |
+| PD-037 | Story Like and follower publication notifications are deferred; Bookmark and Reader progress/history are not Notification triggers | backend Notifications architecture |
+| PD-038 | A first semantic delivery intent commits atomically with its source mutation; equivalent Like/Follow lifetime reactivation is `ALREADY_NOTIFIED`; worker materialization is at-least-once and idempotent | outbox/worker ADR |
+| PD-039 | V1 resolves at most one recipient in the source transaction; high-fan-out publication requires a later ADR | delivery-model and outbox/worker ADRs |
+| PD-040 | `/notifications` is the dedicated inbox; `/following` remains a separate followed-content surface and is never a mock fallback | `NOTIFICATIONS_FRONTEND_CONTRACT.md` |
+| PD-041 | Read state is server `ReadAt`, unread count is exact and derived, feed pagination is signed recipient-bound keyset, and frontend delivery uses visible-tab polling | read-state ADR; `NOTIFICATIONS_FRONTEND_CONTRACT.md` |
+| PD-042 | Actor unlink neutralizes identity, recipient unlink removes addressed inbox/outbox rows, safety data never enters Notifications, and no fixed retention/expiry is invented | backend Notifications architecture |
+
 ## Open Decisions
 
 | รหัส | เรื่องที่ต้องอนุมัติ | สถานะ |
@@ -74,13 +91,14 @@ closed with the approved policy-neutral Community v1 model.
 | OD-006 | Authentication provider, account linking และ role governance | ยังไม่ได้กำหนด |
 | OD-007 | Database/API/hosting/storage architecture | ยังไม่ได้กำหนด |
 | OD-008 | Ranking, search และ editorial selection rules | ยังไม่ได้กำหนด |
-| OD-009 | Content policy, moderation SLA, appeal และ notification | ยังไม่ได้กำหนด |
+| OD-009 | Content policy, moderation SLA, appeal และ notification | Notification v1 public-safe outcome behavior is resolved by PD-036/PD-042; content policy, appeals, and moderator SLA remain open |
 | OD-010 | Upload constraints, ownership/licensing และ media processing | ยังไม่ได้กำหนด |
 | OD-011 | Accessibility target และ supported browser matrix | ยังไม่ได้กำหนด |
 | OD-012 | Production behavior เมื่อ slug/id/route param ไม่พบ | ยังไม่ได้กำหนด |
 | OD-013 | นิยาม ราคา สิทธิ์ และ lifecycle ของ Ad-free membership | ยังไม่ได้กำหนด |
 | OD-014 | ผู้ให้บริการ เนื้อหาโฆษณา frequency cap การวัดผล และ privacy/consent | ยังไม่ได้กำหนด |
 | OD-015 | Community safety-record post-resolution clock, duration, legal-hold authority/release semantics, audit expiry, purge operation/ownership, and privileged staff-account retention | Deferred Beta/Production launch gate; not an implementation blocker under PD-030. The unapproved 24-month proposal was rejected during independent review |
+| OD-016 | Notification, processed-outbox, and dead-letter retention clocks; legal-hold applicability; dead-letter operator ownership/SLA; monitoring thresholds; shared cursor-secret operations; distributed rate limits | Notifications Beta/Production launch gates; policy-neutral implementation may begin after independent architecture approval |
 
 ## Decision Governance
 
