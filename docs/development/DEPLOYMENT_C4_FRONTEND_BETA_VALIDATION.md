@@ -34,3 +34,27 @@ resource was created and no Production target is accepted.
 Production still requires Deployment D approvals, Production-specific
 non-destructive smoke, on-call/SLO ownership, multi-revision asset-drain proof,
 security/privacy review, and explicit Production authorization.
+
+## Reviewed Git closure and hosted PR validation
+
+Git closure on 2026-08-09 created Frontend PR
+[`#10`](https://github.com/jaruwith/novelverse/pull/10). The reviewed Deployment C
+commit was `c2f1efbf7005af9cd17f22b241572ffa6261893c`; no merge, tag, release,
+Azure workflow dispatch, cloud mutation, or Production target occurred.
+
+Initial hosted run `31306605577` passed. Follow-up commit
+`59677ad0106b3598ef52c21c72ade47f1525dee3` added the missing hosted actionlint
+and deployed-Beta configuration gates. Run `31307141781` passed on GitHub Actions
+Ubuntu 24.04 in 1m06s with:
+
+- actionlint 1.7.7;
+- exact Beta/HTTPS/hostname/coordinated-release configuration validation;
+- 272 Vitest tests plus four Node evidence tests (276 total);
+- lint, typecheck, and Next.js 16.2.12 production build;
+- full and production-only npm audits with zero vulnerabilities;
+- artifact manifest and PR whitespace checks.
+
+The validation used only the non-deployable `beta.example.invalid` identity and
+configuration-only mode. No browser contacted Beta or Production, no token was
+provided, and no Azure/OIDC/deployment workflow ran. **AZURE BETA APPLY NOT
+AUTHORIZED.**
