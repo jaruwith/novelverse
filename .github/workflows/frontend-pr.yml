@@ -30,6 +30,27 @@ jobs:
       - name: Reproducible install
         run: npm ci
 
+      - name: Workflow static validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --silent --show-error --location \
+            --output "$archive" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $archive" | sha256sum --check --status
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+
+      - name: Deployed Beta E2E configuration safety
+        run: |
+          node scripts/test-deployed-beta.mjs \
+            --base-url https://beta.example.invalid \
+            --approved-hostname beta.example.invalid \
+            --environment Beta \
+            --coordinated-release v1.4.0-alpha.2 \
+            --validate-config-only
+
       - name: Tests, static checks, and production build
         run: |
           npm test

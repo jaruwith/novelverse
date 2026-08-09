@@ -3,8 +3,8 @@
 | รายการ | ค่า |
 |---|---|
 | Purpose | จัด milestone ตาม phase ที่กำหนด โดยยึดสถานะจาก repository และไม่กำหนดวันส่งมอบเอง |
-| Current Status | Notifications v1 is released at `v1.4.0-alpha.1`; Phase 7 Deployment A and B foundations are complete locally |
-| Version | v1.4.0-alpha.1 architecture baseline |
+| Current Status | Deployment A+B are released at `v1.4.0-alpha.2`; Deployment C1+C2+C3+C4 foundation is implemented and validated locally without cloud apply |
+| Version | v1.4.0-alpha.2 Deployment A+B checkpoint |
 | Last Updated | 8 สิงหาคม 2569 |
 | Author | Codex — Lead Software Architect and Technical Documentation Engineer |
 
@@ -92,16 +92,27 @@
 
 ## Phase 7 — Deployment
 
-**สถานะ:** Deployment architecture complete; Deployment A and B implemented and locally validated
+**สถานะ:** Deployment A+B merged and remote-verified; Deployment C1+C2+C3+C4 foundation implemented and validated locally without cloud apply
 
 - Selected architecture: Azure Container Apps, managed PostgreSQL 16, Key Vault/Managed Identity, immutable artifacts, and same-origin frontend API routing
 - Deployment A: **complete locally** — container builds, local container proof,
   explicit mountable media boundary, liveness/readiness, bounded shutdown, and
   image hardening; durable Production media remains a Deployment C gate
-- Deployment B: **complete locally** — secretless PR gates, immutable main/tag
+- Deployment B: **complete and merged** — secretless PR gates, immutable main/tag
   images, exact-archive scan/SBOM, GitHub provenance structure, coordinated
-  manifests, version-aligned serialized migration job, and clean-database proof;
-  first hosted CI/attestation evidence awaits a reviewed commit/push
-- Deployment C: Development/Beta resources, private networking, secrets, single-API hosted-worker Beta topology, monitoring, alerts, and operational ownership
+  manifests, version-aligned serialized migration job, clean-database proof,
+  hosted scans/SBOM/attestations, and coordinated Browser E2E
+- Deployment C1: **implemented locally, no Azure apply** — Bicep foundation for
+  ACR, VNet/subnets, ACA environment, Log Analytics dependency, and native
+  same-origin routing contract; cloud validate/what-if awaits approved parameters
+- Deployment C2: **implemented locally, no Azure apply** — private PostgreSQL,
+  split Key Vault/MI contracts, database roles, and a manual migration ACA Job
+- Deployment C3: **implemented foundation locally, no Azure apply** — digest-bound
+  API/Frontend apps, fixed Beta API topology, native routing, HTTPS/proxy/CORS,
+  private durable media, probes, rollout/rollback, and validation harness
+- Deployment C4: **implemented locally, no Azure apply** â€” Azure Monitor/OpenTelemetry,
+  workspace-based Application Insights, bounded diagnostics/workbook/owned alerts,
+  immutable ACR promotion tooling, protected what-if/apply rollout, deployed smoke/
+  Browser E2E safety, and forward-fix-only rollback simulation
 - Deployment D: dedicated Production worker, shared limiter, deletion orchestration, retention/legal hold, backup/restore proof, capacity review, runbooks, and final deployment validation
 - Beta and Production readiness remain separate approvals. Platform subscription/region/budget, owners, SLO/SLA, RPO/RTO, retention values, and launch date are not yet approved

@@ -2,12 +2,12 @@
 
 | Item | Value |
 |---|---|
-| Status | Approved architecture; Deployment A and B implemented and locally validated |
-| Coordinated baseline | `v1.4.0-alpha.1` |
-| Frontend baseline | `bd3c6c7fab18dc4773900fa73f97659b18ebf4f0` |
+| Status | Approved architecture; Deployment A+B merged/remote-verified; shared Deployment C1+C2+C3 implemented locally without Azure apply |
+| Coordinated baseline | `v1.4.0-alpha.2` |
+| Frontend baseline | `f96a38c78e006b0395d8da0ca92791cf26e78008` |
 | Runtime | Next.js `16.2.12`, React `19.2.4`, Node `>=20.9.0` |
 | Deployment target | Azure Container Apps, Next standalone Node server image |
-| Non-claim | Workflows are not remotely executed yet; no registry or cloud deployment exists |
+| Non-claim | C3 defines but has not deployed any Azure resource, Container App, route, domain, or certificate |
 
 ## Purpose
 
@@ -51,6 +51,22 @@ route to Next through the ACA environment custom-domain rule configuration. It
 preserves `/api/v1/...` and evaluates the API route before the default route. One
 signed image digest is promoted from Development to Staging/Beta to Production.
 Local development retains an explicit absolute base from ignored `.env.local`.
+
+Deployment C1 verified that this contract maps to the stable ACA environment
+child resource `Microsoft.App/managedEnvironments/httpRouteConfigs` using a
+`pathSeparatedPrefix` `/api` route with no prefix rewrite and a default `/`
+route. C1 creates neither route because its API/frontend target apps, domain, and
+certificate are C3 concerns. Front Door/Application Gateway is therefore not a
+mandatory Beta dependency solely for same-origin path splitting.
+
+Deployment C3 now defines the two digest-bound Container Apps and the stable
+`2026-01-01` route resource. The route supplies a platform hostname without a
+custom domain; optional domain/certificate inputs remain empty until approved.
+Current stable Microsoft route guidance explicitly permits an environment route
+to target an app with internal ingress. C3 therefore keeps the API app's own
+ingress internal and exposes `/api/*` through the environment route. The
+Frontend retains external HTTPS ingress. API authentication/authorization
+remains authoritative at the shared route boundary.
 
 If separate origins become a hard requirement, design a schema-validated public
 runtime configuration document before implementation. It may expose only an
@@ -193,6 +209,12 @@ Deployment A local container and health evidence is recorded in
 immutable artifact, scan/SBOM/provenance, and release-gate evidence is recorded
 in `docs/development/DEPLOYMENT_B_FRONTEND_CI_ARTIFACTS.md`; its first
 GitHub-hosted run remains a reviewed commit/merge gate.
+
+Deployment C4 adds `scripts/test-deployed-beta.mjs` as the exact-host,
+Beta-only, no-mock Browser E2E gate described in
+`docs/development/DEPLOYMENT_C4_FRONTEND_BETA_VALIDATION.md`. It is locally
+syntax/config validated; execution against a real stack remains pending an
+approved cloud binding and does not claim that Beta was deployed.
 
 Before Beta:
 
